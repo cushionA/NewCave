@@ -345,9 +345,7 @@ namespace TestScript.SOATest
                 this.hashCode = gameObject.GetHashCode();
                 //this.liveData = new CharacterUpdateData(status.baseData, gameObject.transform.position);
                 this.solidData = status.solidData;
-                this.targetingCount = 0;
-                // 最初はマイナスで10000を入れることですぐ動けるように
-                this.lastJudgeTime = -10000;
+
 
                 this.stateInfo = new CharacterStateInfo(status.baseData);
                 this.baseInfo = new CharacterBaseInfo(status.baseData, (Vector2)gameObject.transform.position);
@@ -356,7 +354,6 @@ namespace TestScript.SOATest
                 this.shortRangeCharacter = new UnsafeList<int>(7, Allocator.Persistent);
 
                 this.moveJudgeInterval = status.moveJudgeInterval;
-                this.lastMoveJudgeTime = 0;// どうせ行動判断時に振り向くから
 
                 // 最初は論理削除フラグなし。
                 this.isLogicalDelate = BitableBool.FALSE;
@@ -381,26 +378,6 @@ namespace TestScript.SOATest
             public CharacterBaseInfo baseInfo;
 
             public CharacterStateInfo stateInfo;
-
-            /// <summary>
-            /// 自分を狙ってる敵の数。
-            /// ボスか指揮官は無視でよさそう
-            /// 今攻撃してるやつも攻撃を終えたら別のターゲットを狙う。
-            /// このタイミングで割りこめるやつが割り込む
-            /// あくまでヘイト値を減らす感じで。一旦待機になって、ヘイト減るだけなので殴られたら殴り返すよ
-            /// 遠慮状態以外なら遠慮になるし、遠慮中でなお一番ヘイト高いなら攻撃して、その次は遠慮になる
-            /// </summary>
-            public int targetingCount;
-
-            /// <summary>
-            /// 最後に判断した時間。
-            /// </summary>
-            public float lastJudgeTime;
-
-            /// <summary>
-            /// 最後に移動判断した時間。
-            /// </summary>
-            public float lastMoveJudgeTime;
 
             /// <summary>
             /// キャラクターのハッシュ値を保存しておく。
@@ -464,18 +441,13 @@ namespace TestScript.SOATest
 
         /// <summary>
         /// BaseImfo region - キャラクターの基本情報（HP、MP、位置）
-        /// サイズ: 36バイト
+        /// サイズ: 32バイト
         /// 用途: 毎フレーム更新される基本ステータス(ID以外)
         /// SoA OK
         /// </summary>
         [StructLayout(LayoutKind.Sequential)]
         public struct CharacterBaseInfo
         {
-            /// <summary>
-            /// キャラクターのID
-            /// </summary>
-            public readonly int characterID;
-
             /// <summary>
             /// 最大体力
             /// </summary>
@@ -525,7 +497,6 @@ namespace TestScript.SOATest
             /// </summary>
             public CharacterBaseInfo(in CharacterBaseData baseData, Vector2 initialPosition)
             {
-                characterID = baseData.characterID;
                 maxHp = baseData.hp;
                 maxMp = baseData.mp;
                 currentHp = baseData.hp;
@@ -534,6 +505,42 @@ namespace TestScript.SOATest
                 mpRatio = 100;
                 nowPosition = initialPosition;
             }
+        }
+
+        /// <summary>
+        /// 参照頻度が少なく、加えて連続参照されないデータを集めた構造体。
+        /// </summary>
+        public struct CharaColdLog
+        {
+            /// <summary>
+            /// キャラクターのID
+            /// </summary>
+            public readonly int characterID;
+
+            /// <summary>
+            /// キャラクターのハッシュ値を保存しておく。
+            /// </summary>
+            public int hashCode;
+
+            /// <summary>
+            /// 最後に判断した時間。
+            /// </summary>
+            public float lastJudgeTime;
+
+            /// <summary>
+            /// 最後に移動判断した時間。
+            /// </summary>
+            public float lastMoveJudgeTime;
+
+            public CharaColdLog(SOAStatus status, GameObject gameObject)
+            {
+                characterID = status.characterID;
+                hashCode = gameObject.GetHashCode();
+                // 最初はマイナスで10000を入れることですぐ動けるように
+                this.lastJudgeTime = -10000;
+                this.lastMoveJudgeTime = -10000;
+            }
+
         }
 
         /// <summary>
@@ -652,6 +659,16 @@ namespace TestScript.SOATest
             public BrainEventFlagType brainEvent;
 
             /// <summary>
+            /// 自分を狙ってる敵の数。
+            /// ボスか指揮官は無視でよさそう
+            /// 今攻撃してるやつも攻撃を終えたら別のターゲットを狙う。
+            /// このタイミングで割りこめるやつが割り込む
+            /// あくまでヘイト値を減らす感じで。一旦待機になって、ヘイト減るだけなので殴られたら殴り返すよ
+            /// 遠慮状態以外なら遠慮になるし、遠慮中でなお一番ヘイト高いなら攻撃して、その次は遠慮になる
+            /// </summary>
+            public int targetingCount;
+
+            /// <summary>
             /// 状態をリセット（初期化時用）
             /// </summary>
             public void ResetStates()
@@ -669,6 +686,7 @@ namespace TestScript.SOATest
                 actState = baseData.initialMove;
                 nowEffect = SpecialEffect.なし;
                 brainEvent = BrainEventFlagType.None;
+                targetingCount = 0;
             }
         }
 
@@ -1077,11 +1095,6 @@ namespace TestScript.SOATest
         public struct CharacterBaseData
         {
             /// <summary>
-            /// キャラのID
-            /// </summary>
-            public int characterID;
-
-            /// <summary>
             /// 最大HP
             /// </summary>
             [Header("HP")]
@@ -1218,7 +1231,12 @@ namespace TestScript.SOATest
 
         #endregion
 
-        // ここから下で各データを設定して、コンテナに1要素ずつ入れていく
+        // ここから下で各データを設定。キャラの種類ごとのステータス。
+
+        /// <summary>
+        /// キャラのID
+        /// </summary>
+        public int characterID;
 
         /// <summary>
         /// キャラのベース、固定部分のデータ。

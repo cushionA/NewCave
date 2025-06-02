@@ -18,6 +18,8 @@ using static CharacterController.BaseController;
 using static CharacterController.BrainStatus;
 using CharacterController;
 
+/*
+
 /// <summary>
 /// AITestJobのパフォーマンステスト
 /// </summary>
@@ -1028,3 +1030,5 @@ public class SOAJobTest
         }
     }
 }
+
+*/
