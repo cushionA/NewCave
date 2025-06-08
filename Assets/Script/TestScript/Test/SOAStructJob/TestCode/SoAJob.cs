@@ -7,12 +7,11 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using static CharacterController.AIManager;
-using static CharacterController.BaseController;
-using static CharacterController.BrainStatus;
+using static TestScript.Collections.SoACharaDataDic;
+using static TestScript.SOATest.SOAStatus;
 using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
 
-namespace CharacterController
+namespace TestScript
 {
     /// <summary>
     /// AIが判断を行うJob
@@ -21,7 +20,7 @@ namespace CharacterController
     /// UnsafeList<CharacterData> characterDataは論理削除で中身ないデータもあるからその判別もしないとな
     /// </summary>
     [BurstCompile]
-    public struct JobAI : IJobParallelFor
+    public struct SoAJob : IJobParallelFor
     {
         /// <summary>
         /// 読み取り専用のチームごとの全体ヘイト
@@ -30,10 +29,51 @@ namespace CharacterController
         public NativeHashMap<int2, int> teamHate;
 
         /// <summary>
-        /// CharacterDataDicの変換後
+        /// キャラクターの基本情報
         /// </summary>
-        [Unity.Collections.ReadOnly]
-        public UnsafeList<BrainStatus.CharacterData> characterData;
+        [ReadOnly]
+        public UnsafeList<CharacterBaseInfo> _characterBaseInfo;
+
+        /// <summary>
+        /// 攻撃力のデータ
+        /// </summary>
+        [ReadOnly]
+        public UnsafeList<CharacterAtkStatus> _characterAtkStatus;
+
+        /// <summary>
+        /// 防御力のデータ
+        /// </summary>
+        [ReadOnly]
+        public UnsafeList<CharacterDefStatus> _characterDefStatus;
+
+        /// <summary>
+        /// AIが参照するための状態情報
+        /// </summary>
+        [ReadOnly]
+        public UnsafeList<SolidData> _solidData;
+
+        /// <summary>
+        /// AIが参照するための状態情報
+        /// </summary>
+        [ReadOnly]
+        public UnsafeList<CharacterStateInfo> _characterStateInfo;
+
+        /// <summary>
+        /// 移動関連のステータス
+        /// </summary>
+        [ReadOnly]
+        public UnsafeList<MoveStatus> _moveStatus;
+
+        /// <summary>
+        /// 参照頻度の低いデータ
+        /// </summary>
+        [ReadOnly]
+        public UnsafeList<CharaColdLog> _coldLog;
+
+        /// <summary>
+        /// キャラごとの個人ヘイト管理用
+        /// </summary>
+        public NativeArray<PersonalHateContainer> pHate;
 
         /// <summary>
         /// 現在時間
@@ -45,7 +85,7 @@ namespace CharacterController
         /// ターゲット変更の反映とかも全部こっちでやる。
         /// </summary>
         [WriteOnly]
-        public UnsafeList<MovementInfo> judgeResult;
+        public UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult;
 
         /// <summary>
         /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。
@@ -55,31 +95,39 @@ namespace CharacterController
         public NativeArray<int> relationMap;
 
         /// <summary>
+        /// キャラのAIの設定。
+        /// 状態に基づいて最初にデータを一つだけ抜く。
+        /// </summary>
+        [ReadOnly]
+        public NativeArray<BrainDataForJob> brainArray;
+
+        /// <summary>
         /// characterDataとjudgeResultのインデックスをベースに処理する。
         /// </summary>
         /// <param name="index"></param>
         [BurstCompile]
         public void Execute(int index)
         {
-            // 論理削除を確認し、削除されていれば無視。
-            if ( this.characterData[index].IsLogicalDelate() )
-            {
-                return;
-            }
 
             // 結果の構造体を作成。
-            MovementInfo resultData = new();
+            CharacterController.BaseController.MovementInfo resultData = new();
 
             // 現在の行動のステートを数値に変換
-            int nowMode = (int)this.characterData[index].liveData.actState;
+            int nowMode = (int)_characterStateInfo[index].actState;
+
+            BrainSettingForJob brainData = brainArray[_coldLog[index].characterID - 1].brainSetting[nowMode];
+
+            // インターバルをまとめて取得
+            // xが行動、yが移動判断
+            float2 intervals = brainArray[_coldLog[index].characterID - 1].GetInterval();
 
             // 判断時間が経過したかを確認。
             // 経過してないなら処理しない。
             // あるいはターゲット消えた場合も判定したい。チームヘイトに含まれてなければ。それだと味方がヘイトの時どうするの。
             // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
-            if ( this.nowTime - this.characterData[index].lastJudgeTime < this.characterData[index].brainData[nowMode].judgeInterval )
+            if ( this.nowTime - this._coldLog[index].lastJudgeTime < intervals.x )
             {
-                resultData.result = JudgeResult.何もなし;
+                resultData.result = CharacterController.BaseController.JudgeResult.何もなし;
 
                 // 移動方向判断だけはする。
                 //　正確には距離判定。
@@ -91,8 +139,6 @@ namespace CharacterController
 
                 return;
             }
-
-            CharacterData myData = this.characterData[index];
 
             // characterData[index].brainData[nowMode].judgeInterval みたいな値は何回も使うなら一時変数に保存していい。
 
@@ -120,22 +166,21 @@ namespace CharacterController
 
             // 前提となる自分についてのスキップ条件を確認。
             // 最後の条件は補欠条件なので無視
-            for ( int i = 0; i < myData.brainData[nowMode].actCondition.Length - 1; i++ )
+            for ( int i = 0; i < brainData.behaviorSetting.Length - 1; i++ )
             {
 
-                SkipJudgeData skipData = myData.brainData[nowMode].actCondition[i].skipData;
+                SkipJudgeData skipData = brainData.behaviorSetting[i].skipData;
 
                 // スキップ条件を解釈して判断
-                if ( skipData.skipCondition == SkipJudgeCondition.条件なし || JudgeSkipByCondition(skipData, myData) == 1 )
+                if ( skipData.skipCondition == SkipJudgeCondition.条件なし || JudgeSkipByCondition(skipData, index) == 1 )
                 {
                     enableCondition |= 1 << i;
                 }
-
             }
 
             // 条件を満たした行動の中で最も優先的なもの。
             // 初期値は最後の条件、つまり条件なしの補欠条件
-            int selectMove = myData.brainData[nowMode].actCondition.Length - 1;
+            int selectMove = brainData.behaviorSetting.Length - 1;
 
             //// ヘイト条件確認用の一時バッファ
             //NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(myData.brainData[nowMode].hateCondition.Length, Allocator.Temp);
@@ -155,10 +200,10 @@ namespace CharacterController
             //}
 
             // キャラデータを確認する。
-            for ( int i = 0; i < this.characterData.Length; i++ )
+            for ( int i = 0; i < _solidData.Length; i++ )
             {
-                // 自分と論理削除対象はスキップ
-                if ( index == i || this.characterData[i].IsLogicalDelate() )
+                // 自分はスキップ
+                if ( index == i )
                 {
                     continue;
                 }
@@ -180,10 +225,10 @@ namespace CharacterController
                 // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
                 if ( enableCondition != 0 )
                 {
-                    for ( int j = 0; j < myData.brainData[nowMode].actCondition.Length - 1; j++ )
+                    for ( int j = 0; j < brainData.behaviorSetting.Length - 1; j++ )
                     {
                         // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない。
-                        if ( CheckActCondition(myData.brainData[nowMode].actCondition[j], myData, this.characterData[i], this.teamHate) )
+                        if ( CheckActCondition(brainData.behaviorSetting[j].actCondition, index, i) )
                         {
                             selectMove = j;
 
@@ -245,7 +290,7 @@ namespace CharacterController
 
             // 最も条件に近いターゲットを確認する。
             // 比較用初期値はInvertによって変動。
-            TargetJudgeData targetJudgeData = myData.brainData[nowMode].actCondition[selectMove].targetCondition;
+            TargetJudgeData targetJudgeData = brainData.behaviorSetting[selectMove].targetCondition;
 
             _ = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
             int newTargetHash = 0;
@@ -254,7 +299,7 @@ namespace CharacterController
             if ( targetJudgeData.judgeCondition == TargetSelectCondition.不要_状態変更 )
             {
                 // 指定状態に移行
-                resultData.result = JudgeResult.新しく判断をした;
+                resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
                 resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
 
                 // 判断結果を設定。
@@ -264,10 +309,10 @@ namespace CharacterController
             // それ以外であればターゲットを判断
             else
             {
-                int tIndex = JudgeTargetByCondition(targetJudgeData, this.characterData, myData, this.teamHate);
+                int tIndex = JudgeTargetByCondition(targetJudgeData, index);
                 if ( tIndex >= 0 )
                 {
-                    newTargetHash = this.characterData[tIndex].hashCode;
+                    newTargetHash = this._coldLog[tIndex].hashCode;
 
                     //   Debug.Log($"ターゲット判断成功:{tIndex}のやつ。  Hash：{newTargetHash}");
                 }
@@ -275,13 +320,13 @@ namespace CharacterController
                 else
                 {
                     // 待機に移行
-                    resultData.result = JudgeResult.新しく判断をした;
+                    resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
                     resultData.actNum = (int)ActState.待機;
                     //  Debug.Log($"ターゲット判断失敗　行動番号{selectMove}");
                 }
             }
 
-            resultData.result = JudgeResult.新しく判断をした;
+            resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
             resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
             resultData.targetHash = newTargetHash;
 
@@ -306,15 +351,15 @@ namespace CharacterController
         /// <returns>条件に合致する場合は1、それ以外は0</returns>
         [BurstCompile]
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public static int JudgeSkipByCondition(in SkipJudgeData skipData, in CharacterData charaData)
+        public int JudgeSkipByCondition(in SkipJudgeData skipData, int myIndex)
         {
             SkipJudgeCondition condition = skipData.skipCondition;
             switch ( condition )
             {
                 case SkipJudgeCondition.自分のHPが一定割合の時:
                     // 各条件を個別に int で評価
-                    int equalConditionHP = skipData.judgeValue == charaData.liveData.hpRatio ? 1 : 0;
-                    int lessConditionHP = skipData.judgeValue < charaData.liveData.hpRatio ? 1 : 0;
+                    int equalConditionHP = skipData.judgeValue == _characterBaseInfo[myIndex].hpRatio ? 1 : 0;
+                    int lessConditionHP = skipData.judgeValue < _characterBaseInfo[myIndex].hpRatio ? 1 : 0;
                     int invertConditionHP = skipData.isInvert == BitableBool.TRUE ? 1 : 0;
                     // 明示的に条件を組み合わせる
                     int condition1HP = equalConditionHP;
@@ -328,8 +373,8 @@ namespace CharacterController
 
                 case SkipJudgeCondition.自分のMPが一定割合の時:
                     // 各条件を個別に int で評価
-                    int equalConditionMP = skipData.judgeValue == charaData.liveData.mpRatio ? 1 : 0;
-                    int lessConditionMP = skipData.judgeValue < charaData.liveData.mpRatio ? 1 : 0;
+                    int equalConditionMP = skipData.judgeValue == _characterBaseInfo[myIndex].mpRatio ? 1 : 0;
+                    int lessConditionMP = skipData.judgeValue < _characterBaseInfo[myIndex].mpRatio ? 1 : 0;
                     int invertConditionMP = skipData.isInvert == BitableBool.TRUE ? 1 : 0;
                     // 明示的に条件を組み合わせる
                     int condition1MP = equalConditionMP;
@@ -358,44 +403,45 @@ namespace CharacterController
         /// <param name="nowHate"></param>
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         [BurstCompile]
-        public static bool CheckActCondition(in BehaviorData condition, in CharacterData myData, in CharacterData targetData, in NativeHashMap<int2, int> tHate)
+        public bool CheckActCondition(in ActJudgeData condition, int myIndex,
+            int targetIndex)
         {
             bool result = true;
 
             // フィルター通過しないなら戻る。
-            if ( condition.actCondition.filter.IsPassFilter(targetData) == 0 )
+            if ( condition.filter.IsPassFilter(_solidData[targetIndex], _characterStateInfo[targetIndex]) == 0 )
             {
                 return false;
             }
 
-            switch ( condition.actCondition.judgeCondition )
+            switch ( condition.judgeCondition )
             {
                 case ActJudgeCondition.指定のヘイト値の敵がいる時:
 
-                    int targetHash = targetData.hashCode;
+                    int targetHash = _coldLog[targetIndex].hashCode;
                     int targetHate = 0;
 
-                    if ( myData.personalHate.TryGetValue(targetHash, out int hate) )
+                    if ( pHate[myIndex].personalHate.TryGetValue(targetHash, out int hate) )
                     {
                         targetHate += hate;
                     }
 
                     // チームのヘイトはint2で確認する。
-                    int2 hateKey = new((int)myData.liveData.belong, targetHash);
+                    int2 hateKey = new((int)_characterStateInfo[targetIndex].belong, targetHash);
 
-                    if ( tHate.TryGetValue(hateKey, out int teamHate) )
+                    if ( teamHate.TryGetValue(hateKey, out int tHate) )
                     {
-                        targetHate += teamHate;
+                        targetHate += tHate;
                     }
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.actCondition.isInvert == BitableBool.FALSE )
+                    if ( condition.isInvert == BitableBool.FALSE )
                     {
-                        result = targetHate >= condition.actCondition.judgeValue;
+                        result = targetHate >= condition.judgeValue;
                     }
                     else
                     {
-                        result = targetHate <= condition.actCondition.judgeValue;
+                        result = targetHate <= condition.judgeValue;
                     }
 
                     return result;
@@ -403,13 +449,13 @@ namespace CharacterController
                 case ActJudgeCondition.HPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.actCondition.isInvert == BitableBool.FALSE )
+                    if ( condition.isInvert == BitableBool.FALSE )
                     {
-                        result = targetData.liveData.hpRatio >= condition.actCondition.judgeValue;
+                        result = _characterBaseInfo[targetIndex].hpRatio >= condition.judgeValue;
                     }
                     else
                     {
-                        result = targetData.liveData.hpRatio <= condition.actCondition.judgeValue;
+                        result = _characterBaseInfo[targetIndex].hpRatio <= condition.judgeValue;
                     }
 
                     return result;
@@ -417,13 +463,13 @@ namespace CharacterController
                 case ActJudgeCondition.MPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.actCondition.isInvert == BitableBool.FALSE )
+                    if ( condition.isInvert == BitableBool.FALSE )
                     {
-                        result = targetData.liveData.mpRatio >= condition.actCondition.judgeValue;
+                        result = _characterBaseInfo[targetIndex].mpRatio >= condition.judgeValue;
                     }
                     else
                     {
-                        result = targetData.liveData.mpRatio <= condition.actCondition.judgeValue;
+                        result = _characterBaseInfo[targetIndex].mpRatio <= condition.judgeValue;
                     }
 
                     return result;
@@ -431,13 +477,13 @@ namespace CharacterController
                 case ActJudgeCondition.設定距離に対象がいる時:
 
                     // 二乗の距離で判定する。
-                    int judgeDist = condition.actCondition.judgeValue * condition.actCondition.judgeValue;
+                    int judgeDist = condition.judgeValue * condition.judgeValue;
 
                     // 今の距離の二乗。
-                    int distance = (int)(math.distancesq(targetData.liveData.nowPosition, myData.liveData.nowPosition));
+                    int distance = (int)(math.distancesq(_characterBaseInfo[targetIndex].nowPosition, _characterBaseInfo[targetIndex].nowPosition));
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.actCondition.isInvert == BitableBool.FALSE )
+                    if ( condition.isInvert == BitableBool.FALSE )
                     {
                         result = distance >= judgeDist;
                     }
@@ -451,26 +497,26 @@ namespace CharacterController
                 case ActJudgeCondition.特定の属性で攻撃する対象がいる時:
 
                     // 通常はいる時、逆の場合はいないとき
-                    if ( condition.actCondition.isInvert == BitableBool.FALSE )
+                    if ( condition.isInvert == BitableBool.FALSE )
                     {
-                        result = ((int)targetData.solidData.attackElement & condition.actCondition.judgeValue) > 0;
+                        result = ((int)_solidData[targetIndex].attackElement & condition.judgeValue) > 0;
                     }
                     else
                     {
-                        result = ((int)targetData.solidData.attackElement & condition.actCondition.judgeValue) == 0;
+                        result = ((int)_solidData[targetIndex].attackElement & condition.judgeValue) == 0;
                     }
 
                     return result;
 
                 case ActJudgeCondition.特定の数の敵に狙われている時:
                     // 通常は以上、逆の場合は以下
-                    if ( condition.actCondition.isInvert == BitableBool.FALSE )
+                    if ( condition.isInvert == BitableBool.FALSE )
                     {
-                        result = targetData.targetingCount >= condition.actCondition.judgeValue;
+                        result = _characterStateInfo[targetIndex].targetingCount >= condition.judgeValue;
                     }
                     else
                     {
-                        result = targetData.targetingCount <= condition.actCondition.judgeValue;
+                        result = _characterStateInfo[targetIndex].targetingCount <= condition.judgeValue;
                     }
 
                     return result;
@@ -485,15 +531,11 @@ namespace CharacterController
         /// <summary>
         /// TargetConditionに基づいて判定を行うメソッド
         /// </summary>
-        /// <param name="judgeData"></param>
-        /// <param name="targetData"></param>
-        /// <param name="score"></param>
-        /// <param name="condition"></param>
-        /// <returns></returns>
+        /// <returns>返り値は行動ターゲットのインデックス</returns>
         // TargetConditionに基づいて判定を行うメソッド
         [BurstCompile]
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public static int JudgeTargetByCondition(in TargetJudgeData judgeData, in UnsafeList<CharacterData> cData, in CharacterData myData, in NativeHashMap<int2, int> tHate)
+        public int JudgeTargetByCondition(in TargetJudgeData judgeData, int myIndex)
         {
 
             int index = -1;
@@ -524,15 +566,15 @@ namespace CharacterController
             switch ( condition )
             {
                 case TargetSelectCondition.高度:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
 
-                        int height = (int)cData[i].liveData.nowPosition.y;
+                        int height = (int)_characterBaseInfo[i].nowPosition.y;
 
                         // 一番高いキャラクターを求める (isInvert == 1)
                         if ( isInvert == 0 )
@@ -560,10 +602,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.HP割合:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -571,20 +613,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.hpRatio > score ? 1 : 0;
+                            int isGreater = _characterBaseInfo[i].hpRatio > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.hpRatio;
+                                score = _characterBaseInfo[i].hpRatio;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.hpRatio < score ? 1 : 0;
+                            int isLess = _characterBaseInfo[i].hpRatio < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.hpRatio;
+                                score = _characterBaseInfo[i].hpRatio;
                                 index = i;
                             }
                         }
@@ -593,10 +635,11 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.HP:
-                    for ( int i = 0; i < cData.Length; i++ )
+
+                    for ( int i = 0; i < _characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -604,20 +647,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.currentHp > score ? 1 : 0;
+                            int isGreater = _characterBaseInfo[i].currentHp > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.currentHp;
+                                score = _characterBaseInfo[i].currentHp;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.currentHp < score ? 1 : 0;
+                            int isLess = _characterBaseInfo[i].currentHp < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.currentHp;
+                                score = _characterBaseInfo[i].currentHp;
                                 index = i;
                             }
                         }
@@ -626,10 +669,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.敵に狙われてる数:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -637,20 +680,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].targetingCount > score ? 1 : 0;
+                            int isGreater = _characterStateInfo[i].targetingCount > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].targetingCount;
+                                score = _characterStateInfo[i].targetingCount;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].targetingCount < score ? 1 : 0;
+                            int isLess = _characterStateInfo[i].targetingCount < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].targetingCount;
+                                score = _characterStateInfo[i].targetingCount;
                                 index = i;
                             }
                         }
@@ -659,10 +702,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.合計攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -670,20 +713,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.dispAtk > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].dispAtk > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.dispAtk;
+                                score = _characterAtkStatus[i].dispAtk;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.dispAtk < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].dispAtk < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.dispAtk;
+                                score = _characterAtkStatus[i].dispAtk;
                                 index = i;
                             }
                         }
@@ -692,10 +735,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.合計防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -703,20 +746,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.dispDef > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].dispDef > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.dispDef;
+                                score = _characterDefStatus[i].dispDef;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.dispDef < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].dispDef < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.dispDef;
+                                score = _characterDefStatus[i].dispDef;
                                 index = i;
                             }
                         }
@@ -725,10 +768,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.斬撃攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -736,20 +779,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.atk.slash > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].atk.slash > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.atk.slash;
+                                score = _characterAtkStatus[i].atk.slash;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.atk.slash < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].atk.slash < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.atk.slash;
+                                score = _characterAtkStatus[i].atk.slash;
                                 index = i;
                             }
                         }
@@ -758,10 +801,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.刺突攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -769,20 +812,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.atk.pierce > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].atk.pierce > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.atk.pierce;
+                                score = _characterAtkStatus[i].atk.pierce;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.atk.pierce < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].atk.pierce < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.atk.pierce;
+                                score = _characterAtkStatus[i].atk.pierce;
                                 index = i;
                             }
                         }
@@ -791,10 +834,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.打撃攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -802,20 +845,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.atk.strike > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].atk.strike > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.atk.strike;
+                                score = _characterAtkStatus[i].atk.strike;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.atk.strike < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].atk.strike < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.atk.strike;
+                                score = _characterAtkStatus[i].atk.strike;
                                 index = i;
                             }
                         }
@@ -824,10 +867,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.炎攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -835,20 +878,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.atk.fire > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].atk.fire > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.atk.fire;
+                                score = _characterAtkStatus[i].atk.fire;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.atk.fire < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].atk.fire < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.atk.fire;
+                                score = _characterAtkStatus[i].atk.fire;
                                 index = i;
                             }
                         }
@@ -857,10 +900,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.雷攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -868,20 +911,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.atk.lightning > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].atk.lightning > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.atk.lightning;
+                                score = _characterAtkStatus[i].atk.lightning;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.atk.lightning < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].atk.lightning < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.atk.lightning;
+                                score = _characterAtkStatus[i].atk.lightning;
                                 index = i;
                             }
                         }
@@ -890,10 +933,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.光攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -901,20 +944,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.atk.light > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].atk.light > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.atk.light;
+                                score = _characterAtkStatus[i].atk.light;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.atk.light < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].atk.light < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.atk.light;
+                                score = _characterAtkStatus[i].atk.light;
                                 index = i;
                             }
                         }
@@ -923,10 +966,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.闇攻撃力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -934,20 +977,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.atk.dark > score ? 1 : 0;
+                            int isGreater = _characterAtkStatus[i].atk.dark > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.atk.dark;
+                                score = _characterAtkStatus[i].atk.dark;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.atk.dark < score ? 1 : 0;
+                            int isLess = _characterAtkStatus[i].atk.dark < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.atk.dark;
+                                score = _characterAtkStatus[i].atk.dark;
                                 index = i;
                             }
                         }
@@ -956,10 +999,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.斬撃防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -967,20 +1010,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.def.slash > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].def.slash > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.def.slash;
+                                score = _characterDefStatus[i].def.slash;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.def.slash < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].def.slash < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.def.slash;
+                                score = _characterDefStatus[i].def.slash;
                                 index = i;
                             }
                         }
@@ -989,10 +1032,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.刺突防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -1000,20 +1043,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.def.pierce > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].def.pierce > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.def.pierce;
+                                score = _characterDefStatus[i].def.pierce;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.def.pierce < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].def.pierce < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.def.pierce;
+                                score = _characterDefStatus[i].def.pierce;
                                 index = i;
                             }
                         }
@@ -1022,10 +1065,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.打撃防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -1033,20 +1076,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.def.strike > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].def.strike > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.def.strike;
+                                score = _characterDefStatus[i].def.strike;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.def.strike < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].def.strike < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.def.strike;
+                                score = _characterDefStatus[i].def.strike;
                                 index = i;
                             }
                         }
@@ -1055,10 +1098,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.炎防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -1066,20 +1109,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.def.fire > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].def.fire > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.def.fire;
+                                score = _characterDefStatus[i].def.fire;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.def.fire < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].def.fire < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.def.fire;
+                                score = _characterDefStatus[i].def.fire;
                                 index = i;
                             }
                         }
@@ -1088,10 +1131,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.雷防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -1099,20 +1142,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.def.lightning > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].def.lightning > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.def.lightning;
+                                score = _characterDefStatus[i].def.lightning;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.def.lightning < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].def.lightning < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.def.lightning;
+                                score = _characterDefStatus[i].def.lightning;
                                 index = i;
                             }
                         }
@@ -1121,10 +1164,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.光防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -1132,20 +1175,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.def.light > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].def.light > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.def.light;
+                                score = _characterDefStatus[i].def.light;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.def.light < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].def.light < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.def.light;
+                                score = _characterDefStatus[i].def.light;
                                 index = i;
                             }
                         }
@@ -1154,10 +1197,10 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.闇防御力:
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
@@ -1165,20 +1208,20 @@ namespace CharacterController
                         // 一番高いキャラクターを求める
                         if ( isInvert == 0 )
                         {
-                            int isGreater = cData[i].liveData.def.dark > score ? 1 : 0;
+                            int isGreater = _characterDefStatus[i].def.dark > score ? 1 : 0;
                             if ( isGreater != 0 )
                             {
-                                score = cData[i].liveData.def.dark;
+                                score = _characterDefStatus[i].def.dark;
                                 index = i;
                             }
                         }
                         // 一番低いキャラクターを求める
                         else
                         {
-                            int isLess = cData[i].liveData.def.dark < score ? 1 : 0;
+                            int isLess = _characterDefStatus[i].def.dark < score ? 1 : 0;
                             if ( isLess != 0 )
                             {
-                                score = cData[i].liveData.def.dark;
+                                score = _characterDefStatus[i].def.dark;
                                 index = i;
                             }
                         }
@@ -1187,19 +1230,20 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.距離:
+
                     // 自分の位置をキャッシュ
-                    float myPositionX = myData.liveData.nowPosition.x;
-                    float myPositionY = myData.liveData.nowPosition.y;
-                    for ( int i = 0; i < cData.Length; i++ )
+                    float2 myPosition = _characterBaseInfo[myIndex].nowPosition;
+
+                    for ( int i = 0; i < _characterBaseInfo.Length; i++ )
                     {
                         // 自分自身か、フィルターをパスできなければ戻る。
-                        if ( cData[i].hashCode == myData.hashCode || judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( myIndex == i || judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
-                        // マンハッタン距離で遠近判断
-                        float distance = Unity.Mathematics.math.abs(myPositionX - cData[i].liveData.nowPosition.x) +
-                                        Unity.Mathematics.math.abs(myPositionY - cData[i].liveData.nowPosition.y);
+                        // 2乗距離で遠近判断
+                        // floatだから誤差が少し心配だね
+                        float distance = Unity.Mathematics.math.distancesq(myPosition, _characterBaseInfo[i].nowPosition);
 
                         // 一番高いキャラクターを求める。
                         if ( isInvert == 0 )
@@ -1210,6 +1254,7 @@ namespace CharacterController
                                 index = i;
                             }
                         }
+
                         // 一番低いキャラクターを求める。
                         else
                         {
@@ -1224,7 +1269,7 @@ namespace CharacterController
                     return index;
 
                 case TargetSelectCondition.自分:
-                    return myData.hashCode;
+                    return myIndex;
 
                 case TargetSelectCondition.プレイヤー:
                     // 何かしらのシングルトンにプレイヤーのHashは持たせとこ
@@ -1233,26 +1278,28 @@ namespace CharacterController
 
                 case TargetSelectCondition.指定なし_ヘイト値:
                     // ターゲット選定ループ
-                    for ( int i = 0; i < cData.Length; i++ )
+                    for ( int i = 0; i < _solidData.Length; i++ )
                     {
                         // 自分自身か、フィルターをパスできなければ戻る。
-                        if ( i == index || judgeData.filter.IsPassFilter(cData[i]) == 0 )
+                        if ( i == index || judgeData.filter.IsPassFilter(_solidData[i], _characterStateInfo[i]) == 0 )
                         {
                             continue;
                         }
                         // ヘイト値を確認
-                        int targetHash = cData[i].hashCode;
+                        int targetHash = _coldLog[i].hashCode;
                         int targetHate = 0;
-                        if ( cData[index].personalHate.TryGetValue(targetHash, out int hate) )
+
+                        if ( pHate[myIndex].personalHate.TryGetValue(targetHash, out int hate) )
                         {
                             targetHate += hate;
                         }
 
                         // チームのヘイトはint2で確認する。
-                        int2 hateKey = new((int)cData[index].liveData.belong, targetHash);
-                        if ( tHate.TryGetValue(hateKey, out int teamHate) )
+                        int2 hateKey = new((int)_characterStateInfo[i].belong, targetHash);
+
+                        if ( teamHate.TryGetValue(hateKey, out int tHate) )
                         {
-                            targetHate += teamHate;
+                            targetHate += tHate;
                         }
                         // 一番高いキャラクターを求める。
                         if ( judgeData.isInvert == BitableBool.FALSE )

@@ -9,6 +9,7 @@ using UnityEngine;
 using static CharacterController.AIManager;
 using Unity.Mathematics;
 using static CharacterController.BrainStatus;
+using CharacterController;
 
 
 namespace TestScript.SOATest
@@ -318,128 +319,6 @@ namespace TestScript.SOATest
         #region 実行時キャラクターデータ関連の構造体定義
 
         /// <summary>
-        /// Jobシステムで使用するキャラクターデータ構造体。
-        /// 全構造体をまとめるが、これを直接は渡さず、中身の配列構造を渡すように
-        /// やっぱこれ使わないわ。コレクションを改造して、各パラメーターの配列からデータを取れるように。
-        /// 代わりにSoA の複雑構造を無視してデータを取れるようにプロパティを組む
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct CharacterData : IDisposable, ILogicalDelate
-        {
-            /// <summary>
-            /// 新しいキャラクターデータを取得する。
-            /// </summary>
-            /// <param name="status"></param>
-            /// <param name="gameObject"></param>
-            public CharacterData(SOAStatus status, GameObject gameObject)
-            {
-                this.brainData = new NativeHashMap<int, CharacterSOAStatusForJob>(status.brainData.Count, Allocator.Persistent);
-
-                foreach ( var item in status.brainData )
-                {
-                    CharacterSOAStatusForJob newData = new(item.Value, Allocator.Persistent);
-                    this.brainData.Add((int)item.Key, newData);
-                }
-
-                this.hashCode = gameObject.GetHashCode();
-                //this.liveData = new CharacterUpdateData(status.baseData, gameObject.transform.position);
-                this.solidData = status.solidData;
-
-
-                this.stateInfo = new CharacterStateInfo(status.baseData);
-                this.baseInfo = new CharacterBaseInfo(status.baseData, (Vector2)gameObject.transform.position);
-
-                this.personalHate = new NativeHashMap<int, int>(7, Allocator.Persistent);
-                this.shortRangeCharacter = new UnsafeList<int>(7, Allocator.Persistent);
-
-                this.moveJudgeInterval = status.moveJudgeInterval;
-
-                // 最初は論理削除フラグなし。
-                this.isLogicalDelate = BitableBool.FALSE;
-            }
-
-            /// <summary>
-            /// 固定のデータ。
-            /// </summary>
-            public SolidData solidData;
-
-            /// <summary>
-            /// キャラのAIの設定。(Jobバージョン)
-            /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
-            /// </summary>
-            public NativeHashMap<int, CharacterSOAStatusForJob> brainData;
-
-            ///// <summary>
-            ///// 更新されうるデータ。
-            ///// </summary>
-            //public CharacterUpdateData liveData;
-
-            public CharacterBaseInfo baseInfo;
-
-            public CharacterStateInfo stateInfo;
-
-            /// <summary>
-            /// キャラクターのハッシュ値を保存しておく。
-            /// </summary>
-            public int hashCode;
-
-            /// <summary>
-            /// 攻撃してきた相手とか、直接的な条件に当てはまった相手のヘイトだけ記録する。
-            /// </summary>
-            public NativeHashMap<int, int> personalHate;
-
-            /// <summary>
-            /// 近くにいるキャラクターの記録。
-            /// これはセンサーで断続的に取得する参考値。
-            /// 要素数上限は7~10の予定
-            /// </summary>
-            public UnsafeList<int> shortRangeCharacter;
-
-            /// <summary>
-            /// AIの移動判断間隔
-            /// </summary>
-            [Header("移動判断間隔")]
-            public float moveJudgeInterval;
-
-            /// <summary>
-            /// 論理削除フラグ。
-            /// </summary>
-            /// 
-            private BitableBool isLogicalDelate;
-
-            /// <summary>
-            /// NativeContainerを含むメンバーを破棄。
-            /// AIManagerが責任を持って破棄する。
-            /// </summary>
-            public void Dispose()
-            {
-                this.brainData.Dispose();
-                this.personalHate.Dispose();
-                this.shortRangeCharacter.Dispose();
-            }
-
-            /// <summary>
-            /// 論理削除フラグの確認。
-            /// </summary>
-            /// <returns>真であれば論理削除済み</returns>
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool IsLogicalDelate()
-            {
-                return this.isLogicalDelate == BitableBool.TRUE;
-            }
-
-            /// <summary>
-            /// 論理削除を実行する。
-            /// </summary>
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public void LogicalDelete()
-            {
-                this.isLogicalDelate = BitableBool.TRUE;
-            }
-        }
-
-        /// <summary>
         /// BaseImfo region - キャラクターの基本情報（HP、MP、位置）
         /// サイズ: 32バイト
         /// 用途: 毎フレーム更新される基本ステータス(ID以外)
@@ -508,7 +387,61 @@ namespace TestScript.SOATest
         }
 
         /// <summary>
+        /// 常に変わらないデータを格納する構造体。
+        /// BaseDataとの違いは、初期化以降頻繁に参照する必要があるか。
+        /// SoA OK 20Byte
+        /// </summary>
+        [Serializable]
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SolidData
+        {
+
+            /// <summary>
+            /// 攻撃属性を示す列挙型
+            /// ビット演算で見る
+            /// NPCだけ入れる
+            /// なに属性の攻撃をしてくるかというところ
+            /// </summary>
+            [Header("攻撃属性")]
+            public Element attackElement;
+
+            /// <summary>
+            /// 弱点属性を示す列挙型
+            /// ビット演算で見る
+            /// NPCだけ入れる
+            /// </summary>
+            [Header("弱点属性")]
+            public Element weakPoint;
+
+            /// <summary>
+            /// キャラの属性というか
+            /// 特徴を示す。種類も包括
+            /// </summary>
+            [Header("キャラクター特徴")]
+            public CharacterFeature feature;
+
+            /// <summary>
+            /// キャラの階級。<br/>
+            /// これが上なほど味方の中で同じ敵をターゲットにしててもお控えしなくて済む、優先的に殴れる。<br/>
+            /// あとランク低い味方に命令飛ばしたりできる。
+            /// </summary>
+            [Header("チーム内での階級")]
+            public CharacterRank rank;
+
+            /// <summary>
+            /// この数値以上の敵から狙われている相手がターゲットになった場合、一旦次の判断までは待機になる
+            /// その次の判断でやっぱり一番ヘイト高ければ狙う。(狙われまくってる相手へのヘイトは下がるので、普通はその次の判断でべつのやつが狙われる)
+            /// 様子伺う、みたいなステート入れるか専用で
+            /// 一定以上に狙われてる相手かつ、様子伺ってるキャラの場合だけヘイト下げるようにしよう。
+            /// </summary>
+            [Header("ターゲット上限")]
+            [Tooltip("この数値以上の敵から狙われている相手が攻撃対象になった場合、一旦次の判断までは待機になる")]
+            public int targetingLimit;
+        }
+
+        /// <summary>
         /// 参照頻度が少なく、加えて連続参照されないデータを集めた構造体。
+        /// 16byte
         /// </summary>
         public struct CharaColdLog
         {
@@ -693,10 +626,9 @@ namespace TestScript.SOATest
 
         #endregion キャラクターデータ関連の構造体定義
 
-        #region 固定データ
+        #region SoA対象外
 
-
-        #region 判断関連
+        #region 判断関連(Job使用)
 
         /// <summary>
         /// AIの設定。
@@ -704,13 +636,8 @@ namespace TestScript.SOATest
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
-        public struct CharacterSOAStatus
+        public struct BrainSetting
         {
-            /// <summary>
-            /// AIの判断間隔
-            /// </summary>
-            [Header("判断間隔")]
-            public float judgeInterval;
 
             /// <summary>
             /// 行動関連の設定データ
@@ -718,23 +645,17 @@ namespace TestScript.SOATest
             [Header("行動設定")]
             public BehaviorData[] actCondition;
 
-            /// <summary>
-            /// 攻撃以外の行動条件データ.
-            /// 最初の要素ほど優先度高いので重点。
-            /// </summary>
-            [Header("ヘイト条件データ")]
-            public TargetJudgeData[] hateCondition;
+
 
         }
 
         /// <summary>
         /// AIの設定。（Jobシステム仕様）
         /// ステータスのCharacterSOAStatusから移植する。
-        /// 要改修
+        /// 運用法としてはReadOnlyで、各Jobの時に現在の行動時のBrainSettingと判断間隔を抜いてそれきり
         /// </summary>
-        [Serializable]
         [StructLayout(LayoutKind.Sequential)]
-        public struct CharacterSOAStatusForJob : IDisposable
+        public struct BrainDataForJob : IDisposable
         {
             /// <summary>
             /// AIの判断間隔
@@ -743,31 +664,81 @@ namespace TestScript.SOATest
             public float judgeInterval;
 
             /// <summary>
+            /// AIの移動判断間隔
+            /// </summary>
+            [Header("移動判断間隔")]
+            public float moveJudgeInterval;
+
+            /// <summary>
+            /// ActStateを変換した int をキーとして行動のデータを持つ
+            /// </summary>
+            public NativeHashMap<int, BrainSettingForJob> brainSetting;
+
+            /// <summary>
+            /// ステータスのデータからJob用のデータを構築する。
+            /// </summary>
+            /// <param name="sourceDic"></param>
+            /// <param name="judgeInterval"></param>
+            public BrainDataForJob(ActStateBrainDictionary sourceDic, float judgeInterval, float moveJudgeInterval)
+            {
+                // 判断間隔を設定。
+                this.judgeInterval = judgeInterval;
+                this.moveJudgeInterval = moveJudgeInterval;
+
+                brainSetting = new NativeHashMap<int, BrainSettingForJob>(sourceDic.Count, allocator: Allocator.Persistent);
+
+                foreach ( var item in sourceDic )
+                {
+                    this.brainSetting.Add((int)item.Key, new BrainSettingForJob(item.Value, allocator: Allocator.Persistent));
+                }
+            }
+
+            /// <summary>
+            /// インターバルをまとめて返す。
+            /// </summary>
+            /// <returns></returns>
+            public float2 GetInterval()
+            {
+                return new float2(judgeInterval, moveJudgeInterval);
+            }
+
+            /// <summary>
+            /// 各キャラの設定として保持し続けるのでゲーム終了時に呼ぶ。
+            /// </summary>
+            public void Dispose()
+            {
+                foreach ( var item in brainSetting )
+                {
+                    item.Value.Dispose();
+                }
+
+                brainSetting.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// AIの設定。（Jobシステム仕様）
+        /// ステータスのCharacterSOAStatusから移植する。
+        /// 要改修
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BrainSettingForJob : IDisposable
+        {
+
+            /// <summary>
             /// 行動条件データ
             /// </summary>
             [Header("行動条件データ")]
-            public NativeArray<BehaviorData> actCondition;
-
-            /// <summary>
-            /// 攻撃以外の行動条件データ.
-            /// 最初の要素ほど優先度高いので重点。
-            /// </summary>
-            [Header("ヘイト条件データ")]
-            public NativeArray<TargetJudgeData> hateCondition;
+            public NativeArray<BehaviorData> behaviorSetting;
 
             /// <summary>
             /// NativeArrayリソースを解放する
             /// </summary>
             public void Dispose()
             {
-                if ( this.actCondition.IsCreated )
+                if ( this.behaviorSetting.IsCreated )
                 {
-                    this.actCondition.Dispose();
-                }
-
-                if ( this.hateCondition.IsCreated )
-                {
-                    this.hateCondition.Dispose();
+                    this.behaviorSetting.Dispose();
                 }
             }
 
@@ -776,22 +747,35 @@ namespace TestScript.SOATest
             /// </summary>
             /// <param name="source">移植元のキャラクターブレインステータス</param>
             /// <param name="allocator">NativeArrayに使用するアロケータ</param>
-            public CharacterSOAStatusForJob(in CharacterSOAStatus source, Allocator allocator)
+            public BrainSettingForJob(in BrainSetting source, Allocator allocator)
             {
 
-                // 基本プロパティをコピー
-                this.judgeInterval = source.judgeInterval;
-
                 // 配列を新しく作成
-                this.actCondition = source.actCondition != null
+                this.behaviorSetting = source.actCondition != null
                     ? new NativeArray<BehaviorData>(source.actCondition, allocator)
                     : new NativeArray<BehaviorData>(0, allocator);
-
-                this.hateCondition = source.hateCondition != null
-                    ? new NativeArray<TargetJudgeData>(source.hateCondition, allocator)
-                    : new NativeArray<TargetJudgeData>(0, allocator);
             }
 
+        }
+
+        /// <summary>
+        /// ヘイトの設定。（Jobシステム仕様）
+        /// ステータスから移植する。
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HateSettingForJob
+        {
+            /// <summary>
+            /// 攻撃以外の行動条件データ.
+            /// 最初の要素ほど優先度高いので重点。
+            /// </summary>
+            [Header("ヘイト条件データ")]
+            public NativeArray<TargetJudgeData> hateCondition;
+
+            public HateSettingForJob(TargetJudgeData[] hateSetting)
+            {
+                hateCondition = new NativeArray<TargetJudgeData>(hateSetting, Allocator.Persistent);
+            }
         }
 
         /// <summary>
@@ -828,6 +812,7 @@ namespace TestScript.SOATest
         /// <summary>
         /// 判断に使用するデータ。
         /// SoA OK
+        /// 12Byte
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
@@ -1034,41 +1019,35 @@ namespace TestScript.SOATest
             /// <param name="feature"></param>
             /// <returns></returns>
             [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-            public byte IsPassFilter(in CharacterData charaData)
+            public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo)
             {
-                // 論理削除対象は常に無視。
-                if ( charaData.IsLogicalDelate() )
-                {
-                    return 0;
-                }
-
                 // andかorで特徴条件判定
                 // 当てはまらないなら帰る。
-                if ( this.isAndFeatureCheck == BitableBool.TRUE ? ((this.targetFeature != 0) && (this.targetFeature & charaData.solidData.feature) != this.targetFeature) :
-                                                      ((this.targetFeature != 0) && (this.targetFeature & charaData.solidData.feature) == 0) )
+                if ( this.isAndFeatureCheck == BitableBool.TRUE ? ((this.targetFeature != 0) && (this.targetFeature & solidData.feature) != this.targetFeature) :
+                                                      ((this.targetFeature != 0) && (this.targetFeature & solidData.feature) == 0) )
                 {
                     return 0;
                 }
 
                 // 特殊効果判断
                 // 当てはまらないなら帰る。
-                if ( this.isAndEffectCheck == BitableBool.TRUE ? ((this.targetEffect != 0) && (this.targetEffect & charaData.stateInfo.nowEffect) != this.targetEffect) :
-                                          ((this.targetEffect != 0) && (this.targetEffect & charaData.stateInfo.nowEffect) == 0) )
+                if ( this.isAndEffectCheck == BitableBool.TRUE ? ((this.targetEffect != 0) && (this.targetEffect & stateInfo.nowEffect) != this.targetEffect) :
+                                          ((this.targetEffect != 0) && (this.targetEffect & stateInfo.nowEffect) == 0) )
                 {
                     return 0;
                 }
 
                 // イベント判断
                 // 当てはまらないなら帰る。
-                if ( this.isAndEventCheck == BitableBool.TRUE ? ((this.targetEvent != 0) && (this.targetEvent & charaData.stateInfo.brainEvent) != this.targetEvent) :
-                                          ((this.targetEvent != 0) && (this.targetEvent & charaData.stateInfo.brainEvent) == 0) )
+                if ( this.isAndEventCheck == BitableBool.TRUE ? ((this.targetEvent != 0) && (this.targetEvent & stateInfo.brainEvent) != this.targetEvent) :
+                                          ((this.targetEvent != 0) && (this.targetEvent & stateInfo.brainEvent) == 0) )
                 {
                     return 0;
                 }
 
                 // 残りの条件も判定。
-                if ( (this.targetType == 0 || ((this.targetType & charaData.stateInfo.belong) > 0)) && (this.targetState == 0 || ((this.targetState & charaData.stateInfo.actState) > 0))
-                    && (this.targetWeakPoint == 0 || ((this.targetWeakPoint & charaData.solidData.weakPoint) > 0)) && (this.targetUseElement == 0 || ((this.targetUseElement & charaData.solidData.attackElement) > 0)) )
+                if ( (this.targetType == 0 || ((this.targetType & stateInfo.belong) > 0)) && (this.targetState == 0 || ((this.targetState & stateInfo.actState) > 0))
+                    && (this.targetWeakPoint == 0 || ((this.targetWeakPoint & solidData.weakPoint) > 0)) && (this.targetUseElement == 0 || ((this.targetUseElement & solidData.attackElement) > 0)) )
                 {
                     return 1;
                 }
@@ -1080,7 +1059,7 @@ namespace TestScript.SOATest
 
         #endregion 判断関連
 
-        #region キャラクター基幹データ
+        #region キャラクター基幹データ（非Job）
 
         /// <summary>
         /// 送信するデータ、不変の物
@@ -1131,73 +1110,8 @@ namespace TestScript.SOATest
         }
 
         /// <summary>
-        /// 常に変わらないデータを格納する構造体。
-        /// BaseDataとの違いは、初期化以降頻繁に参照する必要があるか。
-        /// SoA OK
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct SolidData
-        {
-
-            /// <summary>
-            /// 外部表示用の攻撃力。
-            /// </summary>
-            [Header("表示用攻撃力")]
-            public int displayAtk;
-
-            /// <summary>
-            /// 外部表示用の防御力。
-            /// </summary>
-            [Header("表示用防御力")]
-            public int displayDef;
-
-            /// <summary>
-            /// 攻撃属性を示す列挙型
-            /// ビット演算で見る
-            /// NPCだけ入れる
-            /// なに属性の攻撃をしてくるかというところ
-            /// </summary>
-            [Header("攻撃属性")]
-            public Element attackElement;
-
-            /// <summary>
-            /// 弱点属性を示す列挙型
-            /// ビット演算で見る
-            /// NPCだけ入れる
-            /// </summary>
-            [Header("弱点属性")]
-            public Element weakPoint;
-
-            /// <summary>
-            /// キャラの属性というか
-            /// 特徴を示す。種類も包括
-            /// </summary>
-            [Header("キャラクター特徴")]
-            public CharacterFeature feature;
-
-            /// <summary>
-            /// キャラの階級。<br/>
-            /// これが上なほど味方の中で同じ敵をターゲットにしててもお控えしなくて済む、優先的に殴れる。<br/>
-            /// あとランク低い味方に命令飛ばしたりできる。
-            /// </summary>
-            [Header("チーム内での階級")]
-            public CharacterRank rank;
-
-            /// <summary>
-            /// この数値以上の敵から狙われている相手がターゲットになった場合、一旦次の判断までは待機になる
-            /// その次の判断でやっぱり一番ヘイト高ければ狙う。(狙われまくってる相手へのヘイトは下がるので、普通はその次の判断でべつのやつが狙われる)
-            /// 様子伺う、みたいなステート入れるか専用で
-            /// 一定以上に狙われてる相手かつ、様子伺ってるキャラの場合だけヘイト下げるようにしよう。
-            /// </summary>
-            [Header("ターゲット上限")]
-            [Tooltip("この数値以上の敵から狙われている相手が攻撃対象になった場合、一旦次の判断までは待機になる")]
-            public int targetingLimit;
-        }
-
-
-        /// <summary>
         /// 攻撃モーションのステータス。
+        /// これはダメージ計算用のデータだから、攻撃時移動やエフェクトのデータは他に持つ。
         /// これはステータスのScriptableに持たせておくのでエフェクトデータとかの参照型も入れていい。
         /// 前回使用した時間、とかを記録するために、キャラクター側に別途リンクした管理情報が必要。
         /// あとJobシステムで使用しない構造体はなるべくメモリレイアウトを最適化する。ネイティブコードとの連携を気にしなくていいから。
@@ -1213,11 +1127,13 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("攻撃倍率（モーション値）")]
             public float motionValue;
+
+
         }
 
         #endregion
 
-        #endregion 固定データ
+        #endregion SoA対象外
 
         #region シリアライズ可能なディクショナリの定義
 
@@ -1225,7 +1141,7 @@ namespace TestScript.SOATest
         /// ActStateがキーでCharacterSOAStatusが値のディクショナリ
         /// </summary>
         [Serializable]
-        public class ActStateBrainDictionary : SerializableDictionary<ActState, CharacterSOAStatus>
+        public class ActStateBrainDictionary : SerializableDictionary<ActState, BrainSetting>
         {
         }
 
@@ -1239,6 +1155,18 @@ namespace TestScript.SOATest
         public int characterID;
 
         /// <summary>
+        /// AIの判断間隔
+        /// </summary>
+        [Header("判断間隔")]
+        public float judgeInterval;
+
+        /// <summary>
+        /// AIの移動判断間隔
+        /// </summary>
+        [Header("移動判断間隔")]
+        public float moveJudgeInterval;
+
+        /// <summary>
         /// キャラのベース、固定部分のデータ。
         /// これは直接仕様はせず、コピーして各キャラに渡してあげる。
         /// </summary>
@@ -1250,6 +1178,13 @@ namespace TestScript.SOATest
         /// </summary>
         [Header("固定データ")]
         public SolidData solidData;
+
+        /// <summary>
+        /// 攻撃以外の行動条件データ.
+        /// 最初の要素ほど優先度高いので重点。
+        /// </summary>
+        [Header("ヘイト条件データ")]
+        public TargetJudgeData[] hateCondition;
 
         /// <summary>
         /// キャラのAIの設定。
@@ -1273,10 +1208,10 @@ namespace TestScript.SOATest
         public AttackData[] attackData;
 
         /// <summary>
-        /// AIの移動判断間隔
+        /// 旧ステータスのデータをコピーする。
+        /// エディターで動かせる関数を用意しよう。
         /// </summary>
-        [Header("移動判断間隔")]
-        public float moveJudgeInterval;
+        public BrainStatus source;
 
     }
 }
