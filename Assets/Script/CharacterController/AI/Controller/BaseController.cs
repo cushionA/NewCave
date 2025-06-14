@@ -90,6 +90,26 @@ namespace CharacterController
             /// </summary>
             public ActState moveState;
 
+            /// <summary>
+            /// デバッグ用。
+            /// 選択した行動条件を設定する。
+            /// </summary>
+            public int selectActCondition;
+
+            /// <summary>
+            /// デバッグ用。
+            /// 選択したターゲット選択条件を設定する。
+            /// </summary>
+            public int selectTargetCondition;
+
+            /// <summary>
+            /// 
+            /// </summary>
+            public string GetDebugData()
+            {
+                return $"{selectActCondition}番目の条件、{(TargetSelectCondition)selectTargetCondition}({selectTargetCondition})で判断";
+            }
+
         }
 
         #endregion

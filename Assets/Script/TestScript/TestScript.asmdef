@@ -12,15 +12,25 @@
         "GUID:f51ebe6a0ceec4240a699833d6309b23",
         "GUID:536993f12b814234a8f1d38fa0a1f35c",
         "GUID:84651a3751eca9349aac36a66bba901b",
-        "GUID:27619889b8ba8c24980f49ee34dbb44a"
+        "GUID:27619889b8ba8c24980f49ee34dbb44a",
+        "GUID:64222b0d0713a412f92762e2fccd795a",
+        "GUID:9f843d4b38153f04b9cee0502d568525"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll",
+        "Sirenix.OdinInspector.Attributes.dll",
+        "Sirenix.Utilities.dll",
+        "Sirenix.OdinInspector.Editor.dll",
+        "Sirenix.Serialization.dll"
+    ],
     "autoReferenced": true,
-    "defineConstraints": [],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
     "versionDefines": [],
     "noEngineReferences": false
 }

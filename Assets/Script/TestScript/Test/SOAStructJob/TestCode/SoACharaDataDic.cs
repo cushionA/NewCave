@@ -2,11 +2,16 @@ using CharacterController;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using TestScript.SOATest;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
+using static CharacterController.BrainStatus;
 using static TestScript.SOATest.SOAStatus;
+using MoveStatus = TestScript.SOATest.SOAStatus.MoveStatus;
+using SolidData = TestScript.SOATest.SOAStatus.SolidData;
 
 namespace TestScript.Collections
 {
@@ -56,20 +61,6 @@ namespace TestScript.Collections
             public int MoveStatusOffset;
             public int ColdLogOffset;
             public int TotalSize;
-        }
-
-        /// <summary>
-        /// 個人のヘイトを管理するための構造体
-        /// ネイティブアレイで運用する。
-        /// </summary>
-        public struct PersonalHateContainer
-        {
-            public NativeHashMap<int, int> personalHate;
-
-            public PersonalHateContainer(int count = 5)
-            {
-                personalHate = new NativeHashMap<int, int>(count, Allocator.Persistent);
-            }
         }
 
         #endregion
@@ -153,11 +144,6 @@ namespace TestScript.Collections
         /// 参照頻度の低いデータ
         /// </summary>
         public UnsafeList<CharaColdLog> _coldLog;
-
-        /// <summary>
-        /// キャラごとの個人ヘイト管理用
-        /// </summary>
-        public NativeArray<PersonalHateContainer> _pHate;
 
         /// <summary>
         /// BaseControllerを格納する配列
@@ -284,11 +270,17 @@ namespace TestScript.Collections
                 maxCapacity
             );
 
-            // ヘイト管理用配列の初期化
-            _pHate = new NativeArray<PersonalHateContainer>(maxCapacity, Allocator.Persistent);
-
             // BaseController配列
             _controllers = new BaseController[maxCapacity];
+
+            // 長さを初期化
+            _characterBaseInfo.Length = 0;
+            _characterAtkStatus.Length = 0;
+            _characterDefStatus.Length = 0;
+            _solidData.Length = 0;
+            _characterStateInfo.Length = 0;
+            _moveStatus.Length = 0;
+            _coldLog.Length = 0;
         }
 
         #endregion
@@ -307,6 +299,29 @@ namespace TestScript.Collections
             {
                 throw new ArgumentNullException(nameof(obj));
             }
+
+            return AddByHash(obj.GetHashCode(), baseInfo, atkStatus, defStatus, solidData,
+                           stateInfo, moveStatus, coldLog, controller);
+        }
+
+        /// <summary>
+        /// ゲームオブジェクトと全キャラクターデータを追加または更新
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int Add(GameObject obj, SOAStatus status, BaseController controller)
+        {
+            if ( obj == null )
+            {
+                throw new ArgumentNullException(nameof(obj));
+            }
+
+            CharacterBaseInfo baseInfo = new CharacterBaseInfo(status.baseData, obj.transform.position);
+            CharacterAtkStatus atkStatus = new CharacterAtkStatus(status.baseData);
+            CharacterDefStatus defStatus = new CharacterDefStatus(status.baseData);
+            SOAStatus.SolidData solidData = status.solidData;
+            CharacterStateInfo stateInfo = new CharacterStateInfo(status.baseData);
+            SOAStatus.MoveStatus moveStatus = status.moveStatus;
+            CharaColdLog coldLog = new CharaColdLog(status, obj);
 
             return AddByHash(obj.GetHashCode(), baseInfo, atkStatus, defStatus, solidData,
                            stateInfo, moveStatus, coldLog, controller);
@@ -389,9 +404,6 @@ namespace TestScript.Collections
 
             _count++;
 
-            // 個人ヘイトも初期化。
-            _pHate[dataIndex] = new PersonalHateContainer(5);
-
             return dataIndex;
         }
 
@@ -424,9 +436,6 @@ namespace TestScript.Collections
 
             int lastIndex = _count - 1;
 
-            // さっきまで使ってた個人ヘイトを削除。
-            _pHate[dataIndex].personalHate.Dispose();
-
             // 削除対象が最後の要素でない場合は入れ替え
             if ( dataIndex != lastIndex )
             {
@@ -439,9 +448,6 @@ namespace TestScript.Collections
                 _moveStatus[dataIndex] = _moveStatus[lastIndex];
                 _coldLog[dataIndex] = _coldLog[lastIndex];
                 _controllers[dataIndex] = _controllers[lastIndex];
-
-                // 個人ヘイトも更新
-                _pHate[dataIndex] = _pHate[lastIndex];
 
                 // 移動した要素のハッシュコードを見つけてマッピングを更新
                 _dataIndexToHash[dataIndex] = _dataIndexToHash[lastIndex];
@@ -908,6 +914,28 @@ namespace TestScript.Collections
         }
 
         #endregion
+
+        /// <summary>
+        /// デコンストラクタによりすべてのデータリストをタプルとして返す
+        /// </summary>
+        public void Deconstruct(
+            out UnsafeList<CharacterBaseInfo> characterBaseInfo,
+            out UnsafeList<CharacterAtkStatus> characterAtkStatus,
+            out UnsafeList<CharacterDefStatus> characterDefStatus,
+            out UnsafeList<SolidData> solidData,
+            out UnsafeList<CharacterStateInfo> characterStateInfo,
+            out UnsafeList<MoveStatus> moveStatus,
+            out UnsafeList<CharaColdLog> coldLog)
+        {
+            characterBaseInfo = _characterBaseInfo;
+            characterAtkStatus = _characterAtkStatus;
+            characterDefStatus = _characterDefStatus;
+            solidData = _solidData;
+            characterStateInfo = _characterStateInfo;
+            moveStatus = _moveStatus;
+            coldLog = _coldLog;
+
+        }
 
         #region IDisposable
 

@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using Unity.Burst;
@@ -72,12 +73,15 @@ namespace TestScript
 
         /// <summary>
         /// キャラごとの個人ヘイト管理用
+        /// 自分のハッシュと相手のハッシュをキーに値を持つ。
         /// </summary>
-        public NativeArray<PersonalHateContainer> pHate;
+        [ReadOnly]
+        public NativeHashMap<int2, int> pHate;
 
         /// <summary>
         /// 現在時間
         /// </summary>
+        [ReadOnly]
         public float nowTime;
 
         /// <summary>
@@ -102,6 +106,44 @@ namespace TestScript
         public NativeArray<BrainDataForJob> brainArray;
 
         /// <summary>
+        /// コンストラクタ
+        /// </summary>
+        /// <param name="dataLists"></param>
+        /// <param name="teamHate"></param>
+        /// <param name="judgeResult"></param>
+        /// <param name="relationMap"></param>
+        /// <param name="brainArray"></param>
+        /// <param name="nowTime"></param>
+        public SoAJob((
+        UnsafeList<CharacterBaseInfo> characterBaseInfo,
+        UnsafeList<CharacterAtkStatus> characterAtkStatus,
+        UnsafeList<CharacterDefStatus> characterDefStatus,
+        UnsafeList<SolidData> solidData,
+        UnsafeList<CharacterStateInfo> characterStateInfo,
+        UnsafeList<MoveStatus> moveStatus,
+        UnsafeList<CharaColdLog> coldLog
+        ) dataLists, NativeHashMap<int2, int> pHate, NativeHashMap<int2, int> teamHate, UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult,
+            NativeArray<int> relationMap, NativeArray<BrainDataForJob> brainArray, float nowTime)
+        {
+            // タプルから各データリストを展開してフィールドに代入
+            _characterBaseInfo = dataLists.characterBaseInfo;
+            _characterAtkStatus = dataLists.characterAtkStatus;
+            _characterDefStatus = dataLists.characterDefStatus;
+            _solidData = dataLists.solidData;
+            _characterStateInfo = dataLists.characterStateInfo;
+            _moveStatus = dataLists.moveStatus;
+            _coldLog = dataLists.coldLog;
+
+            // 個別パラメータをフィールドに代入
+            this.pHate = pHate;
+            this.teamHate = teamHate;
+            this.judgeResult = judgeResult;
+            this.relationMap = relationMap;
+            this.brainArray = brainArray;
+            this.nowTime = nowTime;
+        }
+
+        /// <summary>
         /// characterDataとjudgeResultのインデックスをベースに処理する。
         /// </summary>
         /// <param name="index"></param>
@@ -110,7 +152,7 @@ namespace TestScript
         {
 
             // 結果の構造体を作成。
-            CharacterController.BaseController.MovementInfo resultData = new();
+            CharacterController.BaseController.MovementInfo resultData = new CharacterController.BaseController.MovementInfo();
 
             // 現在の行動のステートを数値に変換
             int nowMode = (int)_characterStateInfo[index].actState;
@@ -158,7 +200,7 @@ namespace TestScript
             // で、現段階で一番優先度が高い満たした条件を保存しておく
             // その状態で最後まで走査してヘイト値設定も完了する。
             // ちなみにヘイト値設定は自分がヘイト持ってる相手のヘイトを足した値を確認するだけだろ
-            // ヘイト減少の仕組み考えないとな。30パーセントずつ減らす？　あーーーーーーーー
+            // ヘイト減少の仕組み考えないとな。30パーセントずつ減らす？　
 
             // 行動条件の中で前提を満たしたものを取得するビット
             // なお、実際の判断時により優先的な条件が満たされた場合は上位ビットはまとめて消す。
@@ -182,23 +224,6 @@ namespace TestScript
             // 初期値は最後の条件、つまり条件なしの補欠条件
             int selectMove = brainData.behaviorSetting.Length - 1;
 
-            //// ヘイト条件確認用の一時バッファ
-            //NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(myData.brainData[nowMode].hateCondition.Length, Allocator.Temp);
-            //NativeArray<TargetJudgeData> hateCondition = myData.brainData[nowMode].hateCondition;
-
-            //// ヘイト確認バッファの初期化
-            //for ( int i = 0; i < hateIndex.Length; i++ )
-            //{
-            //    if ( hateCondition[i].isInvert )
-            //    {
-            //        hateIndex[i].Set(int.MaxValue, -1);
-            //    }
-            //    else
-            //    {
-            //        hateIndex[i].Set(int.MinValue, -1);
-            //    }
-            //}
-
             // キャラデータを確認する。
             for ( int i = 0; i < _solidData.Length; i++ )
             {
@@ -207,19 +232,6 @@ namespace TestScript
                 {
                     continue;
                 }
-
-                // 読み取り専用のNativeContainerへのアクセスを避けるためにヘイト系の処理は分離することに
-
-                //// まずヘイト判断。
-                //// 各ヘイト条件について、条件更新を記録する。
-                //for ( int j = 0; j < hateCondition.Length; j++ )
-                //{
-                //    int value = hateIndex[j].x;
-                //    if ( targetFunctions[(int)hateCondition[j].judgeCondition].Invoke(hateCondition[j], characterData[i], ref value) )
-                //    {
-                //        hateIndex[j].Set(value, i);
-                //    }
-                //}
 
                 // 行動判断。
                 // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
@@ -251,29 +263,6 @@ namespace TestScript
 
             }
 
-            //// ヘイト値の反映
-            //for ( int i = 0; i < hateIndex.Length; i++ )
-            //{
-            //    int targetHate = 0;
-            //    int targetHash = characterData[hateIndex[i].y].hashCode;
-
-            //    if ( myData.personalHate.ContainsKey(targetHash) )
-            //    {
-            //        targetHate += (int)myData.personalHate[targetHash];
-            //    }
-
-            //    if ( teamHate[(int)myData.liveData.belong].ContainsKey(targetHash) )
-            //    {
-            //        targetHate += teamHate[(int)myData.liveData.belong][targetHash];
-            //    }
-
-            //    // 最低10は保証。
-            //    targetHate = Math.Min(10,targetHate);
-
-            //    int newHate = (int)(targetHate * hateCondition[i].useAttackOrHateNum);
-
-            //}
-
             // その後、二回目のループで条件に当てはまるキャラを探す。
             // 二回目で済むかな？　判断条件の数だけ探さないとダメじゃない？
             // 準備用のジョブで一番攻撃力が高い/低い、とかのキャラを陣営ごとに探しとくべきじゃない？
@@ -292,43 +281,42 @@ namespace TestScript
             // 比較用初期値はInvertによって変動。
             TargetJudgeData targetJudgeData = brainData.behaviorSetting[selectMove].targetCondition;
 
-            _ = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
-            int newTargetHash = 0;
+            // 新しいターゲットのハッシュ
+            int newTargetHash;
 
             // 状態変更の場合ここで戻る。
             if ( targetJudgeData.judgeCondition == TargetSelectCondition.不要_状態変更 )
             {
                 // 指定状態に移行
-                resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
+                resultData.result = CharacterController.BaseController.JudgeResult.状態を変更した;
                 resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
 
                 // 判断結果を設定。
                 this.judgeResult[index] = resultData;
                 return;
             }
-            // それ以外であればターゲットを判断
-            else
-            {
-                int tIndex = JudgeTargetByCondition(targetJudgeData, index);
-                if ( tIndex >= 0 )
-                {
-                    newTargetHash = this._coldLog[tIndex].hashCode;
 
-                    //   Debug.Log($"ターゲット判断成功:{tIndex}のやつ。  Hash：{newTargetHash}");
-                }
-                // ここでターゲット見つかってなければ待機に移行。
-                else
-                {
-                    // 待機に移行
-                    resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
-                    resultData.actNum = (int)ActState.待機;
-                    //  Debug.Log($"ターゲット判断失敗　行動番号{selectMove}");
-                }
+            // それ以外であればターゲットを判断
+
+            int tIndex = JudgeTargetByCondition(targetJudgeData, index);
+            resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
+
+            // ここでターゲット見つかってなければ待機に移行。
+            if ( tIndex < 0 )
+            {
+                // 待機に移行
+                resultData.actNum = (int)ActState.待機;
+                //  Debug.Log($"ターゲット判断失敗　行動番号{selectMove}");
+                this.judgeResult[index] = resultData;
+                return;
             }
 
-            resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
+            newTargetHash = this._coldLog[tIndex].hashCode;
+
             resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
             resultData.targetHash = newTargetHash;
+            resultData.selectActCondition = selectMove;
+            resultData.selectTargetCondition = (int)brainData.behaviorSetting[selectMove].targetCondition.judgeCondition;
 
             // 判断結果を設定。
             this.judgeResult[index] = resultData;
@@ -420,8 +408,9 @@ namespace TestScript
 
                     int targetHash = _coldLog[targetIndex].hashCode;
                     int targetHate = 0;
+                    int2 pHateKey = new int2(_coldLog[myIndex].hashCode, targetHash);
 
-                    if ( pHate[myIndex].personalHate.TryGetValue(targetHash, out int hate) )
+                    if ( pHate.TryGetValue(pHateKey, out int hate) )
                     {
                         targetHate += hate;
                     }
@@ -1288,8 +1277,9 @@ namespace TestScript
                         // ヘイト値を確認
                         int targetHash = _coldLog[i].hashCode;
                         int targetHate = 0;
+                        int2 pHateKey = new int2(_coldLog[myIndex].hashCode, targetHash);
 
-                        if ( pHate[myIndex].personalHate.TryGetValue(targetHash, out int hate) )
+                        if ( pHate.TryGetValue(pHateKey, out int hate) )
                         {
                             targetHate += hate;
                         }

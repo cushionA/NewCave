@@ -1,4 +1,3 @@
-using Sirenix.Utilities;
 using System.Linq;
 using TestScript.SOATest;
 using Unity.Collections;
