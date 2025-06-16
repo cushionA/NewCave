@@ -1,0 +1,170 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 996029d2bd3601d458fb584123b70052, type: 3}
+  m_Name: SOAStatusB
+  m_EditorClassIdentifier: 
+  serializationData:
+    SerializedFormat: 0
+    SerializedBytes: 
+    ReferencedUnityObjects: []
+    SerializedBytesString: 
+    Prefab: {fileID: 0}
+    PrefabModificationsReferencedUnityObjects: []
+    PrefabModifications: []
+    SerializationNodes: []
+  characterID: 2
+  judgeInterval: 0
+  moveJudgeInterval: 0
+  baseData:
+    hp: 500
+    mp: 300
+    baseAtk:
+      slash: 400
+      pierce: 2134
+      strike: 432
+      fire: 22
+      lightning: 34
+      light: 56
+      dark: 11
+    baseDef:
+      slash: 200
+      pierce: 120
+      strike: 566
+      fire: 30
+      lightning: 20
+      light: 500
+      dark: 10
+    initialMove: 4
+    initialBelong: 1
+  solidData:
+    attackElement: 83
+    weakPoint: 85
+    feature: 57343
+    rank: 0
+    targetingLimit: 7
+  hateCondition: []
+  brainData:
+    keyData: 04000000
+    valueData:
+    - judgeData:
+      - skipData:
+          skipCondition: 1
+          judgeValue: 20
+          isInvert: 0
+        actCondition:
+          judgeCondition: 2
+          judgeValue: 0
+          isInvert: 1
+          stateChange: 0
+          filter:
+            targetType: 1
+            targetFeature: 61374
+            isAndFeatureCheck: 0
+            targetEffect: 0
+            isAndEffectCheck: 0
+            targetState: 255
+            targetEvent: 0
+            isAndEventCheck: 0
+            targetWeakPoint: 175
+            targetUseElement: 127
+        targetCondition:
+          judgeCondition: 13
+          isInvert: 0
+          filter:
+            targetType: 2
+            targetFeature: 0
+            isAndFeatureCheck: 0
+            targetEffect: 0
+            isAndEffectCheck: 0
+            targetState: 255
+            targetEvent: 0
+            isAndEventCheck: 0
+            targetWeakPoint: 175
+            targetUseElement: 127
+          useAttackOrHateNum: 0
+      - skipData:
+          skipCondition: 0
+          judgeValue: 80
+          isInvert: 0
+        actCondition:
+          judgeCondition: 2
+          judgeValue: 20
+          isInvert: 1
+          stateChange: 0
+          filter:
+            targetType: 0
+            targetFeature: 61374
+            isAndFeatureCheck: 0
+            targetEffect: 0
+            isAndEffectCheck: 0
+            targetState: 255
+            targetEvent: 0
+            isAndEventCheck: 0
+            targetWeakPoint: 175
+            targetUseElement: 127
+        targetCondition:
+          judgeCondition: 4
+          isInvert: 1
+          filter:
+            targetType: 0
+            targetFeature: 0
+            isAndFeatureCheck: 0
+            targetEffect: 0
+            isAndEffectCheck: 0
+            targetState: 15
+            targetEvent: 0
+            isAndEventCheck: 0
+            targetWeakPoint: 0
+            targetUseElement: 0
+          useAttackOrHateNum: 0
+      - skipData:
+          skipCondition: 0
+          judgeValue: 50
+          isInvert: 1
+        actCondition:
+          judgeCondition: 3
+          judgeValue: 100
+          isInvert: 1
+          stateChange: 1
+          filter:
+            targetType: 0
+            targetFeature: 61374
+            isAndFeatureCheck: 0
+            targetEffect: 0
+            isAndEffectCheck: 0
+            targetState: 255
+            targetEvent: 0
+            isAndEventCheck: 0
+            targetWeakPoint: 175
+            targetUseElement: 127
+        targetCondition:
+          judgeCondition: 18
+          isInvert: 1
+          filter:
+            targetType: 0
+            targetFeature: 61374
+            isAndFeatureCheck: 0
+            targetEffect: 0
+            isAndEffectCheck: 0
+            targetState: 255
+            targetEvent: 0
+            isAndEventCheck: 0
+            targetWeakPoint: 175
+            targetUseElement: 127
+          useAttackOrHateNum: 0
+  moveStatus:
+    moveSpeed: 0
+    walkSpeed: 0
+    dashSpeed: 0
+    jumpHeight: 0
+  attackData: []
+  source: {fileID: 11400000, guid: 5aface073c0d6e646b407d32b7e76b72, type: 2}

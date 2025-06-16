@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: Default Local Group
+  m_EditorClassIdentifier: 
+  m_GroupName: Default Local Group
+  m_GUID: 06abe76b304bddc4597c39bfc33813a2
+  m_SerializeEntries:
+  - m_GUID: 31b4860cc2947e64390b3cbe72ceee2b
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestData/SoA/SOAStatusB.asset
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 3c0ce7b7c01c1ca48aadc5d8b8428b0f
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestData/Normal/BrainStatusC.asset
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 5ab60bd7e016b0246b32b403c2bec012
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestData/Normal/BrainStatusA.asset
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 5aface073c0d6e646b407d32b7e76b72
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestData/Normal/BrainStatusB.asset
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 76ff8fa46bd4c2340ae0584fc30c0d19
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestData/SoA/SOAStatusC.asset
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 7896c9a7db0e42c4f861a21d8d187247
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestData/SoA/SOAStatusA.asset
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 798ecbfb61722f04a99f1f3aa453f861
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestObject/JobTestObjectB.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 7bc4cd0035ea5c34fac013f9df7346d3
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestData/SoA/SoAList.asset
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: de84e7fde7f0f2740b92ccd052249c53
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestObject/JobTestObjectA.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: e03da67ecb77ce74c90960df680bec60
+    m_Address: Assets/Script/TestScript/Test/SOAStructJob/TestObject/JobTestObjectC.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TestAsset
+    FlaggedDuringContentUpdateRestriction: 0
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 7897d148a3a734d4e9dcc341d53bea7d, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 9b830f0ed803e15499d033c5b769db50, type: 2}
+    - {fileID: 11400000, guid: 23b0ba160141fcf42a21e829824ab698, type: 2}
