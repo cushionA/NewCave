@@ -27,20 +27,20 @@ public class CharacterStatusList : ScriptableObject
     /// </summary>
     public void MakeBrainDataArray()
     {
-        brainArray = new NativeArray<BrainDataForJob>(statusList.Length, allocator: Allocator.Persistent);
-        hateSetting = new NativeArray<HateSettingForJob>(statusList.Length, allocator: Allocator.Persistent);
+        this.brainArray = new NativeArray<BrainDataForJob>(this.statusList.Length, allocator: Allocator.Persistent);
+        this.hateSetting = new NativeArray<HateSettingForJob>(this.statusList.Length, allocator: Allocator.Persistent);
 
-        for ( int i = 0; i < statusList.Length; i++ )
+        for ( int i = 0; i < this.statusList.Length; i++ )
         {
-            brainArray[i] = new BrainDataForJob(statusList[i].brainData, statusList[i].judgeInterval, statusList[i].moveJudgeInterval);
-            hateSetting[i] = new HateSettingForJob(statusList[i].hateCondition);
+            this.brainArray[i] = new BrainDataForJob(this.statusList[i].brainData, this.statusList[i].judgeInterval, this.statusList[i].moveJudgeInterval);
+            this.hateSetting[i] = new HateSettingForJob(this.statusList[i].hateCondition);
         }
     }
 
     [ContextMenu("キャラクター並び替え")]
     private void CharacterSortByID()
     {
-        statusList.OrderBy(x => x.characterID);
+        _ = this.statusList.OrderBy(x => x.characterID);
     }
 
 }

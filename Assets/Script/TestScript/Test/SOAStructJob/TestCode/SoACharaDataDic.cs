@@ -2,13 +2,10 @@ using CharacterController;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
 using TestScript.SOATest;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.Mathematics;
 using UnityEngine;
-using static CharacterController.BrainStatus;
 using static TestScript.SOATest.SOAStatus;
 using MoveStatus = TestScript.SOATest.SOAStatus.MoveStatus;
 using SolidData = TestScript.SOATest.SOAStatus.SolidData;
@@ -179,22 +176,22 @@ namespace TestScript.Collections
         /// <summary>
         /// 現在の要素数
         /// </summary>
-        public int Count => _count;
+        public int Count => this._count;
 
         /// <summary>
         /// 最大容量
         /// </summary>
-        public int MaxCapacity => _maxCapacity;
+        public int MaxCapacity => this._maxCapacity;
 
         /// <summary>
         /// 使用率（0.0～1.0）
         /// </summary>
-        public float UsageRatio => (float)_count / _maxCapacity;
+        public float UsageRatio => (float)this._count / this._maxCapacity;
 
         /// <summary>
         /// 今の長さのキャラクターコントローラーを返す。
         /// </summary>
-        public Span<BaseController> GetController => _controllers.AsSpan().Slice(0, _count);
+        public Span<BaseController> GetController => this._controllers.AsSpan().Slice(0, this._count);
 
         #endregion
 
@@ -207,80 +204,80 @@ namespace TestScript.Collections
         /// <param name="allocator">メモリアロケータ（デフォルト: Persistent）</param>
         public SoACharaDataDic(int maxCapacity = DEFAULT_MAX_CAPACITY, Allocator allocator = Allocator.Persistent)
         {
-            _maxCapacity = maxCapacity;
-            _allocator = allocator;
-            _count = 0;
-            _isDisposed = false;
+            this._maxCapacity = maxCapacity;
+            this._allocator = allocator;
+            this._count = 0;
+            this._isDisposed = false;
 
             // バケット配列の初期化
-            _buckets = new int[BUCKET_COUNT];
-            _buckets.AsSpan().Fill(-1);
+            this._buckets = new int[BUCKET_COUNT];
+            this._buckets.AsSpan().Fill(-1);
 
             // エントリリストの初期化
-            _entries = new UnsafeList<Entry>(BUCKET_COUNT * 2, allocator);
+            this._entries = new UnsafeList<Entry>(BUCKET_COUNT * 2, allocator);
 
             // 削除エントリ保管用のエントリリストも作成。
-            _freeEntry = new Stack<int>(maxCapacity);
+            this._freeEntry = new Stack<int>(maxCapacity);
 
             // ハッシュ→データインデックスのマッピング
-            _dataIndexToHash = new int[maxCapacity];
-            _dataIndexToHash.AsSpan().Fill(-1);
+            this._dataIndexToHash = new int[maxCapacity];
+            this._dataIndexToHash.AsSpan().Fill(-1);
 
             // メモリレイアウトの計算
-            MemoryLayout layout = CalculateMemoryLayout(maxCapacity);
-            _totalMemorySize = layout.TotalSize;
+            MemoryLayout layout = this.CalculateMemoryLayout(maxCapacity);
+            this._totalMemorySize = layout.TotalSize;
 
             // 一括メモリ確保
-            _bulkMemory = (byte*)UnsafeUtility.Malloc(_totalMemorySize, 64, allocator);
-            UnsafeUtility.MemClear(_bulkMemory, _totalMemorySize);
+            this._bulkMemory = (byte*)UnsafeUtility.Malloc(this._totalMemorySize, 64, allocator);
+            UnsafeUtility.MemClear(this._bulkMemory, this._totalMemorySize);
 
             // 各UnsafeListの初期化（固定サイズ）
-            _characterBaseInfo = new UnsafeList<CharacterBaseInfo>(
-                (CharacterBaseInfo*)(_bulkMemory + layout.BaseInfoOffset),
+            this._characterBaseInfo = new UnsafeList<CharacterBaseInfo>(
+                (CharacterBaseInfo*)(this._bulkMemory + layout.BaseInfoOffset),
                 maxCapacity
             );
 
-            _characterAtkStatus = new UnsafeList<CharacterAtkStatus>(
-                (CharacterAtkStatus*)(_bulkMemory + layout.AtkStatusOffset),
+            this._characterAtkStatus = new UnsafeList<CharacterAtkStatus>(
+                (CharacterAtkStatus*)(this._bulkMemory + layout.AtkStatusOffset),
                 maxCapacity
             );
 
-            _characterDefStatus = new UnsafeList<CharacterDefStatus>(
-                (CharacterDefStatus*)(_bulkMemory + layout.DefStatusOffset),
+            this._characterDefStatus = new UnsafeList<CharacterDefStatus>(
+                (CharacterDefStatus*)(this._bulkMemory + layout.DefStatusOffset),
                 maxCapacity
             );
 
-            _solidData = new UnsafeList<SolidData>(
-                (SolidData*)(_bulkMemory + layout.SolidDataOffset),
+            this._solidData = new UnsafeList<SolidData>(
+                (SolidData*)(this._bulkMemory + layout.SolidDataOffset),
                 maxCapacity
             );
 
-            _characterStateInfo = new UnsafeList<CharacterStateInfo>(
-                (CharacterStateInfo*)(_bulkMemory + layout.StateInfoOffset),
+            this._characterStateInfo = new UnsafeList<CharacterStateInfo>(
+                (CharacterStateInfo*)(this._bulkMemory + layout.StateInfoOffset),
                 maxCapacity
             );
 
-            _moveStatus = new UnsafeList<MoveStatus>(
-                (MoveStatus*)(_bulkMemory + layout.MoveStatusOffset),
+            this._moveStatus = new UnsafeList<MoveStatus>(
+                (MoveStatus*)(this._bulkMemory + layout.MoveStatusOffset),
                 maxCapacity
             );
 
-            _coldLog = new UnsafeList<CharaColdLog>(
-                (CharaColdLog*)(_bulkMemory + layout.ColdLogOffset),
+            this._coldLog = new UnsafeList<CharaColdLog>(
+                (CharaColdLog*)(this._bulkMemory + layout.ColdLogOffset),
                 maxCapacity
             );
 
             // BaseController配列
-            _controllers = new BaseController[maxCapacity];
+            this._controllers = new BaseController[maxCapacity];
 
             // 長さを初期化
-            _characterBaseInfo.Length = 0;
-            _characterAtkStatus.Length = 0;
-            _characterDefStatus.Length = 0;
-            _solidData.Length = 0;
-            _characterStateInfo.Length = 0;
-            _moveStatus.Length = 0;
-            _coldLog.Length = 0;
+            this._characterBaseInfo.Length = 0;
+            this._characterAtkStatus.Length = 0;
+            this._characterDefStatus.Length = 0;
+            this._solidData.Length = 0;
+            this._characterStateInfo.Length = 0;
+            this._moveStatus.Length = 0;
+            this._coldLog.Length = 0;
         }
 
         #endregion
@@ -300,7 +297,7 @@ namespace TestScript.Collections
                 throw new ArgumentNullException(nameof(obj));
             }
 
-            return AddByHash(obj.GetHashCode(), baseInfo, atkStatus, defStatus, solidData,
+            return this.AddByHash(obj.GetHashCode(), baseInfo, atkStatus, defStatus, solidData,
                            stateInfo, moveStatus, coldLog, controller);
         }
 
@@ -315,15 +312,15 @@ namespace TestScript.Collections
                 throw new ArgumentNullException(nameof(obj));
             }
 
-            CharacterBaseInfo baseInfo = new CharacterBaseInfo(status.baseData, obj.transform.position);
-            CharacterAtkStatus atkStatus = new CharacterAtkStatus(status.baseData);
-            CharacterDefStatus defStatus = new CharacterDefStatus(status.baseData);
+            CharacterBaseInfo baseInfo = new(status.baseData, obj.transform.position);
+            CharacterAtkStatus atkStatus = new(status.baseData);
+            CharacterDefStatus defStatus = new(status.baseData);
             SOAStatus.SolidData solidData = status.solidData;
-            CharacterStateInfo stateInfo = new CharacterStateInfo(status.baseData);
+            CharacterStateInfo stateInfo = new(status.baseData);
             SOAStatus.MoveStatus moveStatus = status.moveStatus;
-            CharaColdLog coldLog = new CharaColdLog(status, obj);
+            CharaColdLog coldLog = new(status, obj);
 
-            return AddByHash(obj.GetHashCode(), baseInfo, atkStatus, defStatus, solidData,
+            return this.AddByHash(obj.GetHashCode(), baseInfo, atkStatus, defStatus, solidData,
                            stateInfo, moveStatus, coldLog, controller);
         }
 
@@ -336,73 +333,73 @@ namespace TestScript.Collections
         {
 
             // 既存エントリの検索
-            if ( TryGetIndexByHash(hashCode, out int existingIndex) )
+            if ( this.TryGetIndexByHash(hashCode, out int existingIndex) )
             {
                 // 更新
-                _characterBaseInfo[existingIndex] = baseInfo;
-                _characterAtkStatus[existingIndex] = atkStatus;
-                _characterDefStatus[existingIndex] = defStatus;
-                _solidData[existingIndex] = solidData;
-                _characterStateInfo[existingIndex] = stateInfo;
-                _moveStatus[existingIndex] = moveStatus;
-                _coldLog[existingIndex] = coldLog;
-                _controllers[existingIndex] = controller;
+                this._characterBaseInfo[existingIndex] = baseInfo;
+                this._characterAtkStatus[existingIndex] = atkStatus;
+                this._characterDefStatus[existingIndex] = defStatus;
+                this._solidData[existingIndex] = solidData;
+                this._characterStateInfo[existingIndex] = stateInfo;
+                this._moveStatus[existingIndex] = moveStatus;
+                this._coldLog[existingIndex] = coldLog;
+                this._controllers[existingIndex] = controller;
                 return existingIndex;
             }
 
             // 容量チェック
-            if ( _count >= _maxCapacity )
+            if ( this._count >= this._maxCapacity )
             {
-                throw new InvalidOperationException($"Maximum capacity ({_maxCapacity}) exceeded");
+                throw new InvalidOperationException($"Maximum capacity ({this._maxCapacity}) exceeded");
             }
 
             // 新規追加
-            int dataIndex = _count;
+            int dataIndex = this._count;
 
             // データを追加
-            _characterBaseInfo.AddNoResize(baseInfo);
-            _characterAtkStatus.AddNoResize(atkStatus);
-            _characterDefStatus.AddNoResize(defStatus);
-            _solidData.AddNoResize(solidData);
-            _characterStateInfo.AddNoResize(stateInfo);
-            _moveStatus.AddNoResize(moveStatus);
-            _coldLog.AddNoResize(coldLog);
-            _controllers[dataIndex] = controller;
+            this._characterBaseInfo.AddNoResize(baseInfo);
+            this._characterAtkStatus.AddNoResize(atkStatus);
+            this._characterDefStatus.AddNoResize(defStatus);
+            this._solidData.AddNoResize(solidData);
+            this._characterStateInfo.AddNoResize(stateInfo);
+            this._moveStatus.AddNoResize(moveStatus);
+            this._coldLog.AddNoResize(coldLog);
+            this._controllers[dataIndex] = controller;
 
             // ハッシュテーブルへの登録
-            int bucketIndex = GetBucketIndex(hashCode);
+            int bucketIndex = this.GetBucketIndex(hashCode);
 
             // エントリの追加
             int newEntryIndex;
 
             // 新しいエントリはバケットの直下に追加される。
             // だから前の直下の要素を NextInBucket に繋げてる。
-            var newEntry = new Entry
+            Entry newEntry = new()
             {
                 HashCode = hashCode,
                 ValueIndex = dataIndex,
-                NextInBucket = _buckets[bucketIndex]
+                NextInBucket = this._buckets[bucketIndex]
             };
 
             // フリーリストから再利用 or 新規追加
-            if ( _freeEntry.TryPop(out newEntryIndex) )
+            if ( this._freeEntry.TryPop(out newEntryIndex) )
             {
-                _entries[newEntryIndex] = newEntry;
+                this._entries[newEntryIndex] = newEntry;
             }
             // 再利用できない場合は最後尾にエントリ追加
             else
             {
-                newEntryIndex = _entries.Length;
-                _entries.AddNoResize(newEntry);
+                newEntryIndex = this._entries.Length;
+                this._entries.AddNoResize(newEntry);
             }
 
             // バケットの直下に新エントリを追加
-            _buckets[bucketIndex] = newEntryIndex;
+            this._buckets[bucketIndex] = newEntryIndex;
 
             // マッピングの更新
-            _dataIndexToHash[dataIndex] = hashCode;
+            this._dataIndexToHash[dataIndex] = hashCode;
 
-            _count++;
+            this._count++;
 
             return dataIndex;
         }
@@ -418,8 +415,11 @@ namespace TestScript.Collections
         public bool Remove(GameObject obj)
         {
             if ( obj == null )
+            {
                 return false;
-            return RemoveByHash(obj.GetHashCode());
+            }
+
+            return this.RemoveByHash(obj.GetHashCode());
         }
 
         /// <summary>
@@ -429,47 +429,47 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool RemoveByHash(int hashCode)
         {
-            if ( !TryGetIndexByHash(hashCode, out int dataIndex) )
+            if ( !this.TryGetIndexByHash(hashCode, out int dataIndex) )
             {
                 return false;
             }
 
-            int lastIndex = _count - 1;
+            int lastIndex = this._count - 1;
 
             // 削除対象が最後の要素でない場合は入れ替え
             if ( dataIndex != lastIndex )
             {
                 // 最後の要素を削除位置にコピー
-                _characterBaseInfo[dataIndex] = _characterBaseInfo[lastIndex];
-                _characterAtkStatus[dataIndex] = _characterAtkStatus[lastIndex];
-                _characterDefStatus[dataIndex] = _characterDefStatus[lastIndex];
-                _solidData[dataIndex] = _solidData[lastIndex];
-                _characterStateInfo[dataIndex] = _characterStateInfo[lastIndex];
-                _moveStatus[dataIndex] = _moveStatus[lastIndex];
-                _coldLog[dataIndex] = _coldLog[lastIndex];
-                _controllers[dataIndex] = _controllers[lastIndex];
+                this._characterBaseInfo[dataIndex] = this._characterBaseInfo[lastIndex];
+                this._characterAtkStatus[dataIndex] = this._characterAtkStatus[lastIndex];
+                this._characterDefStatus[dataIndex] = this._characterDefStatus[lastIndex];
+                this._solidData[dataIndex] = this._solidData[lastIndex];
+                this._characterStateInfo[dataIndex] = this._characterStateInfo[lastIndex];
+                this._moveStatus[dataIndex] = this._moveStatus[lastIndex];
+                this._coldLog[dataIndex] = this._coldLog[lastIndex];
+                this._controllers[dataIndex] = this._controllers[lastIndex];
 
                 // 移動した要素のハッシュコードを見つけてマッピングを更新
-                _dataIndexToHash[dataIndex] = _dataIndexToHash[lastIndex];
+                this._dataIndexToHash[dataIndex] = this._dataIndexToHash[lastIndex];
 
                 // エントリ内の値インデックスも更新
-                UpdateEntryDataIndex(_dataIndexToHash[lastIndex], dataIndex);
+                this.UpdateEntryDataIndex(this._dataIndexToHash[lastIndex], dataIndex);
 
             }
 
             // リストの長さを減らす
-            _characterBaseInfo.Length--;
-            _characterAtkStatus.Length--;
-            _characterDefStatus.Length--;
-            _solidData.Length--;
-            _characterStateInfo.Length--;
-            _moveStatus.Length--;
-            _coldLog.Length--;
+            this._characterBaseInfo.Length--;
+            this._characterAtkStatus.Length--;
+            this._characterDefStatus.Length--;
+            this._solidData.Length--;
+            this._characterStateInfo.Length--;
+            this._moveStatus.Length--;
+            this._coldLog.Length--;
 
             // ハッシュテーブルからエントリを削除
-            RemoveFromHashTable(hashCode);
+            this.RemoveFromHashTable(hashCode);
 
-            _count--;
+            this._count--;
             return true;
         }
 
@@ -483,15 +483,15 @@ namespace TestScript.Collections
         private void UpdateEntryDataIndex(int hashCode, int newDataIndex)
         {
             // 更新対象のエントリがバケットのどの位置にあるかを計算する
-            int bucketIndex = GetBucketIndex(hashCode);
+            int bucketIndex = this.GetBucketIndex(hashCode);
 
             // 現在のエントリの開始位置を取得する。
-            int entryIndex = _buckets[bucketIndex];
+            int entryIndex = this._buckets[bucketIndex];
 
             // ref参照でエントリを探し、エントリ内の値のインデックスを書き換える。
             while ( entryIndex != -1 )
             {
-                ref Entry entry = ref _entries.ElementAt(entryIndex);
+                ref Entry entry = ref this._entries.ElementAt(entryIndex);
 
                 // ハッシュ値が一致するエントリがあれば値インデックスを書き換える。
                 if ( entry.HashCode == hashCode )
@@ -511,17 +511,17 @@ namespace TestScript.Collections
         private void RemoveFromHashTable(int hashCode)
         {
             // 削除対象のエントリがバケットのどの位置にあるかを計算する
-            int bucketIndex = GetBucketIndex(hashCode);
+            int bucketIndex = this.GetBucketIndex(hashCode);
 
             // 削除対象のエントリの開始位置を取得する。
-            int entryIndex = _buckets[bucketIndex];
+            int entryIndex = this._buckets[bucketIndex];
 
             // 前のエントリが－１の時はバケットの直下のエントリ。
             int prevIndex = -1;
 
             while ( entryIndex != -1 )
             {
-                ref Entry entry = ref _entries.ElementAt(entryIndex);
+                ref Entry entry = ref this._entries.ElementAt(entryIndex);
 
                 // ハッシュ値が一致するエントリがあれば値インデックスを書き換える
                 if ( entry.HashCode == hashCode )
@@ -530,19 +530,19 @@ namespace TestScript.Collections
                     // [削除対象、次エントリ、次々エントリ] というバケットを[次エントリ、次々エントリ]にする 
                     if ( prevIndex == -1 )
                     {
-                        _buckets[bucketIndex] = entry.NextInBucket;
+                        this._buckets[bucketIndex] = entry.NextInBucket;
                     }
 
                     // バケット内で前のエントリから参照されているなら、前のエントリに自分の次のエントリを繋ぎ直す。
                     // [前エントリ、削除対象、次エントリ] というバケットを[前エントリ、次エントリ]にする 
                     else
                     {
-                        ref Entry prevEntry = ref _entries.ElementAt(prevIndex);
+                        ref Entry prevEntry = ref this._entries.ElementAt(prevIndex);
                         prevEntry.NextInBucket = entry.NextInBucket;
                     }
 
                     // 解放されたインデックスをスタックに追加
-                    _freeEntry.Push(entryIndex);
+                    this._freeEntry.Push(entryIndex);
                     return;
                 }
 
@@ -579,7 +579,7 @@ namespace TestScript.Collections
                 return false;
             }
 
-            return TryGetValueByHash(obj.GetHashCode(), out baseInfo, out atkStatus, out defStatus, out solidData,
+            return this.TryGetValueByHash(obj.GetHashCode(), out baseInfo, out atkStatus, out defStatus, out solidData,
                                     out stateInfo, out moveStatus, out coldLog, out controller, out index);
         }
 
@@ -591,16 +591,16 @@ namespace TestScript.Collections
                                      out MoveStatus moveStatus, out CharaColdLog coldLog,
                                      out BaseController controller, out int index)
         {
-            if ( TryGetIndexByHash(hashCode, out int dataIndex) )
+            if ( this.TryGetIndexByHash(hashCode, out int dataIndex) )
             {
-                baseInfo = _characterBaseInfo[dataIndex];
-                atkStatus = _characterAtkStatus[dataIndex];
-                defStatus = _characterDefStatus[dataIndex];
-                solidData = _solidData[dataIndex];
-                stateInfo = _characterStateInfo[dataIndex];
-                moveStatus = _moveStatus[dataIndex];
-                coldLog = _coldLog[dataIndex];
-                controller = _controllers[dataIndex];
+                baseInfo = this._characterBaseInfo[dataIndex];
+                atkStatus = this._characterAtkStatus[dataIndex];
+                defStatus = this._characterDefStatus[dataIndex];
+                solidData = this._solidData[dataIndex];
+                stateInfo = this._characterStateInfo[dataIndex];
+                moveStatus = this._moveStatus[dataIndex];
+                coldLog = this._coldLog[dataIndex];
+                controller = this._controllers[dataIndex];
                 index = dataIndex;
                 return true;
             }
@@ -625,7 +625,7 @@ namespace TestScript.Collections
                                  out CharacterDefStatus defStatus, out CharacterStateInfo stateInfo, out SolidData solidData,
                                  out MoveStatus moveStatus, out CharaColdLog coldLog, out BaseController controller)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
             {
                 baseInfo = default;
                 atkStatus = default;
@@ -638,14 +638,14 @@ namespace TestScript.Collections
                 return false;
             }
 
-            baseInfo = _characterBaseInfo[index];
-            atkStatus = _characterAtkStatus[index];
-            defStatus = _characterDefStatus[index];
-            solidData = _solidData[index];
-            stateInfo = _characterStateInfo[index];
-            moveStatus = _moveStatus[index];
-            coldLog = _coldLog[index];
-            controller = _controllers[index];
+            baseInfo = this._characterBaseInfo[index];
+            atkStatus = this._characterAtkStatus[index];
+            defStatus = this._characterDefStatus[index];
+            solidData = this._solidData[index];
+            stateInfo = this._characterStateInfo[index];
+            moveStatus = this._moveStatus[index];
+            coldLog = this._coldLog[index];
+            controller = this._controllers[index];
             return true;
         }
 
@@ -687,10 +687,12 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref CharacterBaseInfo GetCharacterBaseInfoByIndex(int index)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
+            {
                 throw new ArgumentOutOfRangeException(nameof(index));
+            }
 
-            return ref _characterBaseInfo.ElementAt(index);
+            return ref this._characterBaseInfo.ElementAt(index);
         }
 
         /// <summary>
@@ -699,10 +701,12 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref CharacterAtkStatus GetCharacterAtkStatusByIndex(int index)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
+            {
                 throw new ArgumentOutOfRangeException(nameof(index));
+            }
 
-            return ref _characterAtkStatus.ElementAt(index);
+            return ref this._characterAtkStatus.ElementAt(index);
         }
 
         /// <summary>
@@ -711,10 +715,12 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref CharacterDefStatus GetCharacterDefStatusByIndex(int index)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
+            {
                 throw new ArgumentOutOfRangeException(nameof(index));
+            }
 
-            return ref _characterDefStatus.ElementAt(index);
+            return ref this._characterDefStatus.ElementAt(index);
         }
 
         /// <summary>
@@ -723,10 +729,12 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref SolidData GetSolidDataByIndex(int index)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
+            {
                 throw new ArgumentOutOfRangeException(nameof(index));
+            }
 
-            return ref _solidData.ElementAt(index);
+            return ref this._solidData.ElementAt(index);
         }
 
         /// <summary>
@@ -735,10 +743,12 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref CharacterStateInfo GetCharacterStateInfoByIndex(int index)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
+            {
                 throw new ArgumentOutOfRangeException(nameof(index));
+            }
 
-            return ref _characterStateInfo.ElementAt(index);
+            return ref this._characterStateInfo.ElementAt(index);
         }
 
         /// <summary>
@@ -747,10 +757,12 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref MoveStatus GetMoveStatusByIndex(int index)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
+            {
                 throw new ArgumentOutOfRangeException(nameof(index));
+            }
 
-            return ref _moveStatus.ElementAt(index);
+            return ref this._moveStatus.ElementAt(index);
         }
 
         /// <summary>
@@ -759,10 +771,12 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ref CharaColdLog GetCharaColdLogByIndex(int index)
         {
-            if ( index < 0 || index >= _count )
+            if ( index < 0 || index >= this._count )
+            {
                 throw new ArgumentOutOfRangeException(nameof(index));
+            }
 
-            return ref _coldLog.ElementAt(index);
+            return ref this._coldLog.ElementAt(index);
         }
 
         #endregion
@@ -775,25 +789,25 @@ namespace TestScript.Collections
         public void Clear()
         {
             // バケットをリセット
-            _buckets.AsSpan().Fill(-1);
+            this._buckets.AsSpan().Fill(-1);
 
             // エントリとマッピングをクリア
-            _entries.Clear();
-            _dataIndexToHash.AsSpan().Fill(-1);
+            this._entries.Clear();
+            this._dataIndexToHash.AsSpan().Fill(-1);
 
             // データをクリア（Lengthを0にするだけ）
-            _characterBaseInfo.Length = 0;
-            _characterAtkStatus.Length = 0;
-            _characterDefStatus.Length = 0;
-            _solidData.Length = 0;
-            _characterStateInfo.Length = 0;
-            _moveStatus.Length = 0;
-            _coldLog.Length = 0;
+            this._characterBaseInfo.Length = 0;
+            this._characterAtkStatus.Length = 0;
+            this._characterDefStatus.Length = 0;
+            this._solidData.Length = 0;
+            this._characterStateInfo.Length = 0;
+            this._moveStatus.Length = 0;
+            this._coldLog.Length = 0;
 
             // コントローラー配列をクリア
-            Array.Clear(_controllers, 0, _count);
+            Array.Clear(this._controllers, 0, this._count);
 
-            _count = 0;
+            this._count = 0;
         }
 
         /// <summary>
@@ -803,8 +817,11 @@ namespace TestScript.Collections
         public bool ContainsKey(GameObject obj)
         {
             if ( obj == null )
+            {
                 return false;
-            return ContainsKeyByHash(obj.GetHashCode());
+            }
+
+            return this.ContainsKeyByHash(obj.GetHashCode());
         }
 
         /// <summary>
@@ -813,7 +830,7 @@ namespace TestScript.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool ContainsKeyByHash(int hashCode)
         {
-            return TryGetIndexByHash(hashCode, out int _);
+            return this.TryGetIndexByHash(hashCode, out int _);
         }
 
         /// <summary>
@@ -823,19 +840,21 @@ namespace TestScript.Collections
                                   CharacterStateInfo, MoveStatus, CharaColdLog, BaseController> action)
         {
             if ( action == null )
+            {
                 throw new ArgumentNullException(nameof(action));
+            }
 
-            for ( int i = 0; i < _count; i++ )
+            for ( int i = 0; i < this._count; i++ )
             {
                 action(i,
-                      _characterBaseInfo[i],
-                      _characterAtkStatus[i],
-                      _characterDefStatus[i],
-                      _solidData[i],
-                      _characterStateInfo[i],
-                      _moveStatus[i],
-                      _coldLog[i],
-                      _controllers[i]);
+                      this._characterBaseInfo[i],
+                      this._characterAtkStatus[i],
+                      this._characterDefStatus[i],
+                      this._solidData[i],
+                      this._characterStateInfo[i],
+                      this._moveStatus[i],
+                      this._coldLog[i],
+                      this._controllers[i]);
             }
         }
 
@@ -851,7 +870,7 @@ namespace TestScript.Collections
         /// </summary>
         private MemoryLayout CalculateMemoryLayout(int capacity)
         {
-            var layout = new MemoryLayout();
+            MemoryLayout layout = new();
             int currentOffset = 0;
 
             // CharacterBaseInfo
@@ -927,13 +946,13 @@ namespace TestScript.Collections
             out UnsafeList<MoveStatus> moveStatus,
             out UnsafeList<CharaColdLog> coldLog)
         {
-            characterBaseInfo = _characterBaseInfo;
-            characterAtkStatus = _characterAtkStatus;
-            characterDefStatus = _characterDefStatus;
-            solidData = _solidData;
-            characterStateInfo = _characterStateInfo;
-            moveStatus = _moveStatus;
-            coldLog = _coldLog;
+            characterBaseInfo = this._characterBaseInfo;
+            characterAtkStatus = this._characterAtkStatus;
+            characterDefStatus = this._characterDefStatus;
+            solidData = this._solidData;
+            characterStateInfo = this._characterStateInfo;
+            moveStatus = this._moveStatus;
+            coldLog = this._coldLog;
 
         }
 
@@ -944,18 +963,20 @@ namespace TestScript.Collections
         /// </summary>
         public void Dispose()
         {
-            if ( _isDisposed )
-                return;
-
-            if ( _bulkMemory != null )
+            if ( this._isDisposed )
             {
-                UnsafeUtility.Free(_bulkMemory, _allocator);
-                _bulkMemory = null;
+                return;
             }
 
-            _entries.Dispose();
+            if ( this._bulkMemory != null )
+            {
+                UnsafeUtility.Free(this._bulkMemory, this._allocator);
+                this._bulkMemory = null;
+            }
 
-            _isDisposed = true;
+            this._entries.Dispose();
+
+            this._isDisposed = true;
         }
 
         #endregion

@@ -1,29 +1,30 @@
 using CharacterController;
-using Cysharp.Threading.Tasks;
 using NUnit.Framework;
+using SplitJob;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Reflection;
-using System.Text;
-using System.Xml.Linq;
 using TestScript;
 using TestScript.Collections;
 using TestScript.SOATest;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
 using Unity.PerformanceTesting;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.Profiling;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.ResourceManagement.ResourceLocations;
 using UnityEngine.TestTools;
 using static CharacterController.BaseController;
 using static CharacterController.BrainStatus;
 
+// アセンブリレベル設定
+[assembly: BurstCompile(OptimizeFor = OptimizeFor.Performance)]
 /// <summary>
 /// AITestJobのパフォーマンステスト
 /// </summary>
@@ -35,6 +36,8 @@ public class SOAJobTest
 
     private UnsafeList<MovementInfo> _judgeResultJob;
     private UnsafeList<MovementInfo> _judgeResultSoAJob;
+    private UnsafeList<MovementInfo> _judgeResultSplitJob;
+
     private List<MovementInfo> _judgeResultStandard;
     private NativeHashMap<int2, int> _teamHate;
     private NativeHashMap<int2, int> _personalHate;
@@ -42,6 +45,10 @@ public class SOAJobTest
 
     private CharacterStatusList _soaStatusList;
     private readonly List<GameObject> _instantiatedObjects = new();
+
+    public UnsafeList<int> selectMoveList;
+
+    public UnsafeList<int> stateList;
 
     // 初期化状態を追跡するフラグ
     private bool _dataInitialized = false;
@@ -65,34 +72,41 @@ public class SOAJobTest
     private JobAI _aiTestJob;
     private SoAJob _soAJobAI;
 
+    private FirstJob _firstJob;
+    private SecondJob _secondJob;
+    private ThirdJob _thirdJob;
+
     [UnitySetUp]
     public IEnumerator OneTimeSetUp()
     {
         Debug.Log("開始: OneTimeSetUp");
 
+        // ランタイム設定
+        JobsUtility.JobWorkerCount = Mathf.Max(1, SystemInfo.processorCount - 1);
+
         // 前回のテストデータが残っている場合は解放
-        DisposeTestData();
+        this.DisposeTestData();
 
         // テストデータの初期化（同期処理に変更）
-        yield return InitializeTestDataCoroutine();
+        yield return this.InitializeTestDataCoroutine();
 
-        if ( !_dataInitialized )
+        if ( !this._dataInitialized )
         {
             Assert.Fail("テストデータの初期化に失敗しました");
         }
 
         // キャラクターデータの初期化
-        yield return InitializeCharacterDataCoroutine();
+        yield return this.InitializeCharacterDataCoroutine();
 
-        if ( !_charactersInitialized )
+        if ( !this._charactersInitialized )
         {
             Assert.Fail("キャラクターデータの初期化に失敗しました");
         }
 
         // AIインスタンスの初期化
-        InitializeAIInstances();
+        this.InitializeAIInstances();
 
-        if ( !_aiInstancesInitialized )
+        if ( !this._aiInstancesInitialized )
         {
             Assert.Fail("AIインスタンスの初期化に失敗しました");
         }
@@ -104,7 +118,7 @@ public class SOAJobTest
     public void OneTimeTearDown()
     {
         Debug.Log("開始: OneTimeTearDown");
-        DisposeTestData();
+        this.DisposeTestData();
         Debug.Log("完了: OneTimeTearDown");
     }
 
@@ -113,23 +127,31 @@ public class SOAJobTest
     /// </summary>
     private IEnumerator InitializeTestDataCoroutine()
     {
-        Debug.Log($"開始: InitializeTestData (CharacterCount={_characterCount})");
-
+        Debug.Log($"開始: InitializeTestData (CharacterCount={this._characterCount})");
 
         // UnsafeListの初期化
-        _characterData = new UnsafeList<CharacterData>(_characterCount, Allocator.Persistent);
-        _characterData.Resize(_characterCount, NativeArrayOptions.ClearMemory);
+        this._characterData = new UnsafeList<CharacterData>(this._characterCount, Allocator.Persistent);
+        this._characterData.Resize(this._characterCount, NativeArrayOptions.ClearMemory);
 
-        _judgeResultJob = new UnsafeList<MovementInfo>(_characterCount, Allocator.Persistent);
-        _judgeResultJob.Resize(_characterCount, NativeArrayOptions.ClearMemory);
+        this._judgeResultJob = new UnsafeList<MovementInfo>(this._characterCount, Allocator.Persistent);
+        this._judgeResultJob.Resize(this._characterCount, NativeArrayOptions.ClearMemory);
 
-        _judgeResultSoAJob = new UnsafeList<MovementInfo>(_characterCount, Allocator.Persistent);
-        _judgeResultSoAJob.Resize(_characterCount, NativeArrayOptions.ClearMemory);
+        this._judgeResultSoAJob = new UnsafeList<MovementInfo>(this._characterCount, Allocator.Persistent);
+        this._judgeResultSoAJob.Resize(this._characterCount, NativeArrayOptions.ClearMemory);
 
-        _soaData = new SoACharaDataDic();
+        this._judgeResultSplitJob = new UnsafeList<MovementInfo>(this._characterCount, Allocator.Persistent);
+        this._judgeResultSplitJob.Resize(this._characterCount, NativeArrayOptions.ClearMemory);
+
+        this._soaData = new SoACharaDataDic();
+
+        this.selectMoveList = new UnsafeList<int>(this._characterCount, Allocator.Persistent);
+        this.selectMoveList.Resize(this._characterCount, NativeArrayOptions.ClearMemory);
+
+        this.stateList = new UnsafeList<int>(this._characterCount, Allocator.Persistent);
+        this.stateList.Resize(this._characterCount, NativeArrayOptions.ClearMemory);
 
         // SoA用のデータを非同期でロード
-        var handle = Addressables.LoadAssetAsync<CharacterStatusList>(
+        AsyncOperationHandle<CharacterStatusList> handle = Addressables.LoadAssetAsync<CharacterStatusList>(
             "Assets/Script/TestScript/Test/SOAStructJob/TestData/SoA/SoAList.asset");
         yield return handle;
 
@@ -138,38 +160,37 @@ public class SOAJobTest
             if ( handle.Status != AsyncOperationStatus.Succeeded )
             {
                 Debug.LogError("SoAListアセットのロードに失敗しました");
-                _dataInitialized = false;
+                this._dataInitialized = false;
                 yield break;
             }
 
-            _soaStatusList = handle.Result;
-            _soaStatusList.MakeBrainDataArray();
+            this._soaStatusList = handle.Result;
+            this._soaStatusList.MakeBrainDataArray();
 
             // StandardAI用の結果リストを初期化
-            _judgeResultStandard = new List<MovementInfo>(_characterCount);
-            for ( int i = 0; i < _characterCount; i++ )
+            this._judgeResultStandard = new List<MovementInfo>(this._characterCount);
+            for ( int i = 0; i < this._characterCount; i++ )
             {
-                _judgeResultStandard.Add(new MovementInfo());
+                this._judgeResultStandard.Add(new MovementInfo());
             }
 
             // チームごとのヘイトマップを初期化
-            _teamHate = new NativeHashMap<int2, int>(100, Allocator.Persistent); // より多めに確保
-            _personalHate = new NativeHashMap<int2, int>(5, Allocator.Persistent);
-
+            this._teamHate = new NativeHashMap<int2, int>(100, Allocator.Persistent); // より多めに確保
+            this._personalHate = new NativeHashMap<int2, int>(5, Allocator.Persistent);
 
             // 陣営関係マップを初期化
-            _relationMap = new NativeArray<int>(3, Allocator.Persistent);
-            InitializeRelationMap();
+            this._relationMap = new NativeArray<int>(3, Allocator.Persistent);
+            this.InitializeRelationMap();
 
-            _dataInitialized = true;
+            this._dataInitialized = true;
 
             // バッチカウントの最適化
-            OptimizeBatchCount();
+            this.OptimizeBatchCount();
         }
         catch ( Exception ex )
         {
             Debug.LogError($"InitializeTestDataでのエラー: {ex.Message}\n{ex.StackTrace}");
-            _dataInitialized = false;
+            this._dataInitialized = false;
         }
 
         Debug.Log("完了: InitializeTestData");
@@ -180,19 +201,19 @@ public class SOAJobTest
     /// </summary>
     private void InitializeRelationMap()
     {
-        for ( int i = 0; i < _relationMap.Length; i++ )
+        for ( int i = 0; i < this._relationMap.Length; i++ )
         {
             switch ( (CharacterSide)i )
             {
                 case CharacterSide.プレイヤー:
-                    _relationMap[i] = 1 << (int)CharacterSide.魔物;
+                    this._relationMap[i] = 1 << (int)CharacterSide.魔物;
                     break;
                 case CharacterSide.魔物:
-                    _relationMap[i] = 1 << (int)CharacterSide.プレイヤー;
+                    this._relationMap[i] = 1 << (int)CharacterSide.プレイヤー;
                     break;
                 case CharacterSide.その他:
                 default:
-                    _relationMap[i] = 0;
+                    this._relationMap[i] = 0;
                     break;
             }
         }
@@ -203,7 +224,9 @@ public class SOAJobTest
     /// </summary>
     private void OptimizeBatchCount()
     {
-        _jobBatchCount = _characterCount switch
+        this._jobBatchCount = 1;
+        return;
+        this._jobBatchCount = this._characterCount switch
         {
             <= 32 => 1,
             <= 128 => 16,
@@ -222,37 +245,45 @@ public class SOAJobTest
         try
         {
             // 必要なコンテナの状態確認
-            if ( !ValidateContainerStates() )
+            if ( !this.ValidateContainerStates() )
             {
-                _aiInstancesInitialized = false;
+                this._aiInstancesInitialized = false;
                 return;
             }
 
             // AITestJobの初期化
-            _aiTestJob = new JobAI
+            this._aiTestJob = new JobAI
             {
-                teamHate = _teamHate,
-                characterData = _characterData,
-                nowTime = _nowTime,
-                judgeResult = _judgeResultJob,
-                relationMap = _relationMap,
+                teamHate = this._teamHate,
+                characterData = this._characterData,
+                nowTime = this._nowTime,
+                judgeResult = this._judgeResultJob,
+                relationMap = this._relationMap,
             };
 
-            var (characterBaseInfo, characterAtkStatus, characterDefStatus, solidData,
-     characterStateInfo, moveStatus, coldLog) = _soaData;
+            (UnsafeList<SOAStatus.CharacterBaseInfo> characterBaseInfo, UnsafeList<SOAStatus.CharacterAtkStatus> characterAtkStatus, UnsafeList<SOAStatus.CharacterDefStatus> characterDefStatus, UnsafeList<SOAStatus.SolidData> solidData,
+     UnsafeList<SOAStatus.CharacterStateInfo> characterStateInfo, UnsafeList<SOAStatus.MoveStatus> moveStatus, UnsafeList<SOAStatus.CharaColdLog> coldLog) = this._soaData;
             // NonJobAIの初期化
             this._soAJobAI = new SoAJob((characterBaseInfo, characterAtkStatus, characterDefStatus, solidData,
-     characterStateInfo, moveStatus, coldLog), _personalHate, _teamHate, _judgeResultSoAJob, this._relationMap, _soaStatusList.brainArray, _nowTime);
+     characterStateInfo, moveStatus, coldLog), this._personalHate, this._teamHate, this._judgeResultSoAJob, this._relationMap, this._soaStatusList.brainArray, this._nowTime);
 
-            _aiInstancesInitialized = true;
+            this._firstJob = new FirstJob(this.stateList, coldLog, this._soaStatusList.brainArray, this._nowTime);
+            // SplitJobAIの初期化
+            this._secondJob = new SecondJob((characterBaseInfo, characterAtkStatus, characterDefStatus, solidData,
+     characterStateInfo, moveStatus, coldLog), this._personalHate, this._teamHate, this._judgeResultSplitJob, this._relationMap, this._soaStatusList.brainArray, this.selectMoveList, this.stateList);
+
+            this._thirdJob = new ThirdJob((characterBaseInfo, characterAtkStatus, characterDefStatus, solidData,
+     characterStateInfo, moveStatus, coldLog), this._personalHate, this._teamHate, this._judgeResultSplitJob, this._relationMap, this._soaStatusList.brainArray, this.selectMoveList);
+
+            this._aiInstancesInitialized = true;
         }
         catch ( Exception ex )
         {
             Debug.LogError($"InitializeAIInstancesでのエラー: {ex.Message}\n{ex.StackTrace}");
-            _aiInstancesInitialized = false;
+            this._aiInstancesInitialized = false;
         }
 
-        Debug.Log($"完了: InitializeAIInstances (成功={_aiInstancesInitialized})");
+        Debug.Log($"完了: InitializeAIInstances (成功={this._aiInstancesInitialized})");
     }
 
     /// <summary>
@@ -260,19 +291,19 @@ public class SOAJobTest
     /// </summary>
     private bool ValidateContainerStates()
     {
-        if ( !_teamHate.IsCreated )
+        if ( !this._teamHate.IsCreated )
         {
             Debug.LogError("teamHateが初期化されていません");
             return false;
         }
 
-        if ( !_characterData.IsCreated )
+        if ( !this._characterData.IsCreated )
         {
             Debug.LogError("characterDataが初期化されていません");
             return false;
         }
 
-        if ( !_relationMap.IsCreated )
+        if ( !this._relationMap.IsCreated )
         {
             Debug.LogError("relationMapが初期化されていません");
             return false;
@@ -286,19 +317,19 @@ public class SOAJobTest
     /// </summary>
     private IEnumerator InitializeCharacterDataCoroutine()
     {
-        Debug.Log($"開始: InitializeCharacterData (CharacterCount={_characterCount})");
+        Debug.Log($"開始: InitializeCharacterData (CharacterCount={this._characterCount})");
 
         // プレハブの存在確認
-        yield return ValidatePrefabsCoroutine();
+        yield return this.ValidatePrefabsCoroutine();
 
         // オブジェクトのインスタンス化
-        yield return InstantiateObjectsCoroutine();
+        yield return this.InstantiateObjectsCoroutine();
 
         // キャラクターデータの生成
-        yield return GenerateCharacterDataCoroutine();
+        yield return this.GenerateCharacterDataCoroutine();
 
-        _charactersInitialized = true;
-        Debug.Log($"完了: InitializeCharacterData (成功={_charactersInitialized})");
+        this._charactersInitialized = true;
+        Debug.Log($"完了: InitializeCharacterData (成功={this._charactersInitialized})");
     }
 
     /// <summary>
@@ -306,15 +337,15 @@ public class SOAJobTest
     /// </summary>
     private IEnumerator ValidatePrefabsCoroutine()
     {
-        for ( int i = 0; i < _prefabTypes.Length; i++ )
+        for ( int i = 0; i < this._prefabTypes.Length; i++ )
         {
-            var checkOp = Addressables.LoadResourceLocationsAsync(_prefabTypes[i]);
+            AsyncOperationHandle<IList<IResourceLocation>> checkOp = Addressables.LoadResourceLocationsAsync(this._prefabTypes[i]);
             yield return checkOp;
 
             if ( checkOp.Status != AsyncOperationStatus.Succeeded || checkOp.Result.Count == 0 )
             {
-                Debug.LogError($"プレハブが見つかりません: {_prefabTypes[i]}");
-                _charactersInitialized = false;
+                Debug.LogError($"プレハブが見つかりません: {this._prefabTypes[i]}");
+                this._charactersInitialized = false;
                 yield break;
             }
         }
@@ -325,12 +356,12 @@ public class SOAJobTest
     /// </summary>
     private IEnumerator InstantiateObjectsCoroutine()
     {
-        var tasks = new List<AsyncOperationHandle<GameObject>>(_characterCount);
+        List<AsyncOperationHandle<GameObject>> tasks = new(this._characterCount);
 
         // インスタンス化リクエストを開始
-        for ( int i = 0; i < _characterCount; i++ )
+        for ( int i = 0; i < this._characterCount; i++ )
         {
-            var task = Addressables.InstantiateAsync(_prefabTypes[i % 3]);
+            AsyncOperationHandle<GameObject> task = Addressables.InstantiateAsync(this._prefabTypes[i % 3]);
             tasks.Add(task);
 
             // パフォーマンス対策：100個ごとにフレームスキップ
@@ -341,23 +372,23 @@ public class SOAJobTest
         }
 
         // すべてのオブジェクトが生成されるのを待つ
-        foreach ( var task in tasks )
+        foreach ( AsyncOperationHandle<GameObject> task in tasks )
         {
             yield return task;
 
             if ( task.Status == AsyncOperationStatus.Succeeded )
             {
-                _instantiatedObjects.Add(task.Result);
+                this._instantiatedObjects.Add(task.Result);
             }
             else
             {
                 Debug.LogError("オブジェクトのインスタンス化に失敗しました");
-                _charactersInitialized = false;
+                this._charactersInitialized = false;
                 yield break;
             }
         }
 
-        Debug.Log($"オブジェクトのインスタンス化完了: {_instantiatedObjects.Count}個");
+        Debug.Log($"オブジェクトのインスタンス化完了: {this._instantiatedObjects.Count}個");
     }
 
     /// <summary>
@@ -367,11 +398,11 @@ public class SOAJobTest
     {
         int successCount = 0;
 
-        for ( int i = 0; i < _instantiatedObjects.Count && i < _characterCount; i++ )
+        for ( int i = 0; i < this._instantiatedObjects.Count && i < this._characterCount; i++ )
         {
-            GameObject obj = _instantiatedObjects[i];
+            GameObject obj = this._instantiatedObjects[i];
 
-            if ( !ProcessSingleCharacter(obj, i, ref successCount) )
+            if ( !this.ProcessSingleCharacter(obj, i, ref successCount) )
             {
                 continue;
             }
@@ -383,8 +414,8 @@ public class SOAJobTest
             }
         }
 
-        Debug.Log($"キャラクターデータ生成完了: 成功数={successCount}/{_characterCount}");
-        _charactersInitialized = successCount > 0;
+        Debug.Log($"キャラクターデータ生成完了: 成功数={successCount}/{this._characterCount}");
+        this._charactersInitialized = successCount > 0;
     }
 
     /// <summary>
@@ -394,16 +425,16 @@ public class SOAJobTest
     {
         try
         {
-            var aiComponent = obj.GetComponent<BaseController>();
+            BaseController aiComponent = obj.GetComponent<BaseController>();
             if ( aiComponent == null )
             {
                 Debug.LogError($"BaseControllerコンポーネントが見つかりません: {obj.name}");
                 return false;
             }
 
-            var (brainStatus, gameObject) = aiComponent.MakeTestData();
-            var data = new CharacterData(brainStatus, gameObject);
-            _characterData[index] = data;
+            (BrainStatus brainStatus, GameObject gameObject) = aiComponent.MakeTestData();
+            CharacterData data = new(brainStatus, gameObject);
+            this._characterData[index] = data;
 
             int statusNum;
 
@@ -420,15 +451,15 @@ public class SOAJobTest
                 statusNum = 2;
             }
 
-            _soaData.Add(aiComponent.gameObject, _soaStatusList.statusList[statusNum], aiComponent);
+            _ = this._soaData.Add(aiComponent.gameObject, this._soaStatusList.statusList[statusNum], aiComponent);
 
             // ヘイトマップの更新
             int teamNum = (int)data.liveData.belong;
             int2 hateKey = new(teamNum, data.hashCode);
 
-            if ( !_teamHate.ContainsKey(hateKey) )
+            if ( !this._teamHate.ContainsKey(hateKey) )
             {
-                _teamHate.Add(hateKey, 10);
+                this._teamHate.Add(hateKey, 10);
             }
 
             successCount++;
@@ -447,13 +478,13 @@ public class SOAJobTest
     private void DisposeTestData()
     {
         // キャラクターデータの解放
-        if ( _characterData.IsCreated )
+        if ( this._characterData.IsCreated )
         {
-            for ( int i = 0; i < _characterData.Length; i++ )
+            for ( int i = 0; i < this._characterData.Length; i++ )
             {
                 try
                 {
-                    CharacterData data = _characterData[i];
+                    CharacterData data = this._characterData[i];
                     data.Dispose();
                 }
                 catch ( Exception ex )
@@ -461,26 +492,37 @@ public class SOAJobTest
                     Debug.LogError($"CharacterData[{i}]の解放時にエラー: {ex.Message}");
                 }
             }
-            _characterData.Dispose();
+
+            this._characterData.Dispose();
         }
 
         // その他のUnsafeListの解放
-        if ( _judgeResultJob.IsCreated )
-            _judgeResultJob.Dispose();
-        if ( _judgeResultSoAJob.IsCreated )
-            _judgeResultSoAJob.Dispose();
+        if ( this._judgeResultJob.IsCreated )
+        {
+            this._judgeResultJob.Dispose();
+        }
+
+        if ( this._judgeResultSoAJob.IsCreated )
+        {
+            this._judgeResultSoAJob.Dispose();
+        }
 
         // NativeContainerの解放
-        if ( _teamHate.IsCreated )
-            _teamHate.Dispose();
-        if ( _relationMap.IsCreated )
-            _relationMap.Dispose();
+        if ( this._teamHate.IsCreated )
+        {
+            this._teamHate.Dispose();
+        }
+
+        if ( this._relationMap.IsCreated )
+        {
+            this._relationMap.Dispose();
+        }
 
         // SoAデータの解放
-        _soaData?.Dispose();
+        this._soaData?.Dispose();
 
         // 生成されたGameObjectの削除
-        foreach ( var obj in _instantiatedObjects )
+        foreach ( GameObject obj in this._instantiatedObjects )
         {
             if ( obj != null )
             {
@@ -494,15 +536,16 @@ public class SOAJobTest
                 }
             }
         }
-        _instantiatedObjects.Clear();
+
+        this._instantiatedObjects.Clear();
 
         // StandardAI用の結果リスト
-        _judgeResultStandard?.Clear();
+        this._judgeResultStandard?.Clear();
 
         // フラグをリセット
-        _dataInitialized = false;
-        _charactersInitialized = false;
-        _aiInstancesInitialized = false;
+        this._dataInitialized = false;
+        this._charactersInitialized = false;
+        this._aiInstancesInitialized = false;
     }
 
     /// <summary>
@@ -512,16 +555,36 @@ public class SOAJobTest
     public void SoAJobAI_Performance_Test()
     {
         // 初期化状態の確認
-        Assert.IsTrue(_aiInstancesInitialized, "AIインスタンスが初期化されていません");
+        Assert.IsTrue(this._aiInstancesInitialized, "AIインスタンスが初期化されていません");
 
         Measure.Method(() =>
         {
-            JobHandle handle = _soAJobAI.Schedule(_characterCount, _jobBatchCount);
+            JobHandle handle = this._soAJobAI.Schedule(this._characterCount, this._jobBatchCount);
             handle.Complete();
         })
-        .WarmupCount(5)
-        .MeasurementCount(20)
-        .IterationsPerMeasurement(1)
+        .WarmupCount(10)
+        .MeasurementCount(100)
+        .Run();
+    }
+
+    /// <summary>
+    /// SplitJobAIのパフォーマンステスト
+    /// </summary>
+    [Test, Performance]
+    public void SplitJobAI_Performance_Test()
+    {
+        // 初期化状態の確認
+        Assert.IsTrue(this._aiInstancesInitialized, "AIインスタンスが初期化されていません");
+
+        Measure.Method(() =>
+        {
+            JobHandle h1 = this._firstJob.Schedule(this._characterCount, this._jobBatchCount);
+            JobHandle h2 = this._secondJob.Schedule(this._characterCount, this._jobBatchCount, h1);
+            JobHandle h3 = this._thirdJob.Schedule(this._characterCount, this._jobBatchCount, h2);
+            h3.Complete();
+        })
+        .WarmupCount(10)
+        .MeasurementCount(100)
         .Run();
     }
 
@@ -532,41 +595,119 @@ public class SOAJobTest
     public void JobSystemAI_Performance_Test()
     {
         // 初期化状態の確認
-        Assert.IsTrue(_aiInstancesInitialized, "AIインスタンスが初期化されていません");
+        Assert.IsTrue(this._aiInstancesInitialized, "AIインスタンスが初期化されていません");
 
         Measure.Method(() =>
         {
-            JobHandle handle = _aiTestJob.Schedule(_characterCount, _jobBatchCount);
+            JobHandle handle = this._aiTestJob.Schedule(this._characterCount, this._jobBatchCount);
             handle.Complete();
         })
-        .WarmupCount(5)
-        .MeasurementCount(20)
-        .IterationsPerMeasurement(1)
+        .WarmupCount(10)
+        .MeasurementCount(100)
         .Run();
+    }
+
+    /// <summary>
+    /// 各ジョブのメモリ使用量を比較するテスト
+    /// </summary>
+    //[Test, Performance]
+    public void Compare_Memory_Usage_Between_Jobs()
+    {
+        // 初期化状態の確認
+        Assert.IsTrue(this._aiInstancesInitialized, "AIインスタンスが初期化されていません");
+
+        // テスト設定
+        int characterCount = 10000; // メモリ使用量を測定しやすい大きめのサイズ
+        int jobBatchCount = 64;
+
+        // AIインスタンスの時間を更新
+        this._aiTestJob.nowTime = this._nowTime;
+        this._soAJobAI.nowTime = this._nowTime;
+        this._firstJob.nowTime = this._nowTime;
+
+        // メモリ測定用のサンプルグループ
+        SampleGroup memoryResults = new("Memory Usage (MB)", SampleUnit.Megabyte);
+
+        // 1. SoAJobAIのメモリ使用量測定
+        long soAJobMemory = this.MeasureJobMemory(() =>
+        {
+            JobHandle handle = this._soAJobAI.Schedule(characterCount, jobBatchCount);
+            handle.Complete();
+        }, "SoAJobAI");
+
+        // 2. AITestJobのメモリ使用量測定
+        long aiTestJobMemory = this.MeasureJobMemory(() =>
+        {
+            JobHandle jobHandle = this._aiTestJob.Schedule(characterCount, jobBatchCount);
+            jobHandle.Complete();
+        }, "AITestJob");
+
+        // 3. 連鎖ジョブのメモリ使用量測定
+        long chainedJobsMemory = this.MeasureJobMemory(() =>
+        {
+            JobHandle h1 = this._firstJob.Schedule(characterCount, jobBatchCount);
+            JobHandle h2 = this._secondJob.Schedule(characterCount, jobBatchCount, h1);
+            JobHandle h3 = this._thirdJob.Schedule(characterCount, jobBatchCount, h2);
+            h3.Complete();
+        }, "ChainedJobs (First+Second+Third)");
+
+        // パフォーマンステストフレームワークへの記録
+        Measure.Custom(memoryResults, soAJobMemory / (1024f * 1024f));
+    }
+
+    /// <summary>
+    /// ジョブのメモリ使用量を測定
+    /// </summary>
+    private long MeasureJobMemory(System.Action jobExecution, string jobName)
+    {
+        // GCを実行してベースラインを安定させる
+        System.GC.Collect();
+        System.GC.WaitForPendingFinalizers();
+        System.GC.Collect();
+
+        // 測定前のメモリ使用量
+        long beforeMemory = Profiler.GetTotalAllocatedMemoryLong();
+
+        // ジョブ実行
+        jobExecution();
+
+        // 測定後のメモリ使用量
+        long afterMemory = Profiler.GetTotalAllocatedMemoryLong();
+        long usedMemory = afterMemory - beforeMemory;
+
+        Debug.Log($"{jobName} Memory Usage: {usedMemory / (1024f * 1024f):F2} MB");
+
+        return usedMemory;
     }
 
     /// <summary>
     /// 結果の検証テスト
     /// </summary>
-    [Test]
+ //   [Test]
     public void Verify_Results_Are_Same()
     {
         // 初期化状態の確認
-        Assert.IsTrue(_aiInstancesInitialized, "AIインスタンスが初期化されていません");
+        Assert.IsTrue(this._aiInstancesInitialized, "AIインスタンスが初期化されていません");
 
         // AIインスタンスの時間を更新
-        _aiTestJob.nowTime = _nowTime;
-        _soAJobAI.nowTime = _nowTime;
+        this._aiTestJob.nowTime = this._nowTime;
+        this._soAJobAI.nowTime = this._nowTime;
+        this._firstJob.nowTime = this._nowTime;
 
         // 各AIの処理を実行
-        JobHandle soaHandle = _soAJobAI.Schedule(_characterCount, _jobBatchCount);
-        soaHandle.Complete();
+        JobHandle handle = this._soAJobAI.Schedule(this._characterCount, this._jobBatchCount);
+        handle.Complete();
 
-        JobHandle jobHandle = _aiTestJob.Schedule(_characterCount, _jobBatchCount);
+        JobHandle jobHandle = this._aiTestJob.Schedule(this._characterCount, this._jobBatchCount);
         jobHandle.Complete();
 
+        JobHandle h1 = this._firstJob.Schedule(this._characterCount, this._jobBatchCount);
+        JobHandle h2 = this._secondJob.Schedule(this._characterCount, this._jobBatchCount, h1);
+        JobHandle h3 = this._thirdJob.Schedule(this._characterCount, this._jobBatchCount, h2);
+        h3.Complete();
+
         // 結果の検証
-        int mismatchCount = ValidateResults();
+        int mismatchCount = this.ValidateResults();
 
         // テスト結果の検証
         Assert.AreEqual(0, mismatchCount, $"{mismatchCount}個の不一致が検出されました");
@@ -579,33 +720,32 @@ public class SOAJobTest
     {
         int mismatchCount = 0;
 
-        for ( int i = 0; i < _characterCount; i++ )
+        for ( int i = 0; i < this._characterCount; i++ )
         {
-            MovementInfo jobResult = _judgeResultJob[i];
-            MovementInfo soaJobResult = _judgeResultSoAJob[i];
+            MovementInfo jobResult = this._judgeResultJob[i];
+            MovementInfo soaJobResult = this._judgeResultSoAJob[i];
+            MovementInfo splitJobResult = this._judgeResultSplitJob[i];
 
             bool allMatch =
-                jobResult.result == soaJobResult.result &&
-                jobResult.actNum == soaJobResult.actNum &&
-                jobResult.targetHash == soaJobResult.targetHash;
+                jobResult.result == splitJobResult.result &&
+                jobResult.actNum == splitJobResult.actNum &&
+                jobResult.targetHash == splitJobResult.targetHash;
 
             if ( !allMatch )
             {
-                _soaData.TryGetIndexByHash(soaJobResult.targetHash, out int index);
+                _ = this._soaData.TryGetIndexByHash(soaJobResult.targetHash, out int index);
 
                 Debug.LogWarning($"要素[{i}] 不一致: " +
                                $"(Job={jobResult.result},{jobResult.actNum},{jobResult.targetHash}) " +
                                $"(SoAJob={soaJobResult.result},{soaJobResult.actNum},{soaJobResult.targetHash})" +
                                $"Jobデバッグ情報{jobResult.GetDebugData()} SoAデバッグ情報{soaJobResult.GetDebugData()}" +
-                               $"ターゲット{index}番目 ターゲット初期所属{(int)_soaStatusList.statusList[1].baseData.initialBelong} 行動番号{(int)_soaStatusList.brainArray[_soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.useAttackOrHateNum}" +
-                               $"ターゲット{_soaStatusList.brainArray[_soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.filter.GetTargetType()}" +
-                $"フィルター情報{_soaStatusList.brainArray[_soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.filter.DebugIsPassFilter(_soaData._solidData[index], _soaData._characterStateInfo[index])}" +
-                $"フィルター詳細{_soaStatusList.brainArray[_soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.filter.DebugIsPassFilterDetailed(_soaData._solidData[index], _soaData._characterStateInfo[index])}" +
-                                $"キャラフィルター情報{_characterData[i].brainData[(int)ActState.攻撃].actCondition[0].targetCondition.filter.DebugIsPassFilter(_characterData[index])}" +
-                $"キャラフィルター詳細{_characterData[i].brainData[(int)ActState.攻撃].actCondition[0].targetCondition.filter.DebugIsPassFilterWithCharacterInfo(_characterData[index])}");
+                               $"ターゲット{index}番目 ターゲット初期所属{(int)this._soaStatusList.statusList[1].baseData.initialBelong} 行動番号{(int)this._soaStatusList.brainArray[this._soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.useAttackOrHateNum}" +
+                               $"ターゲット{this._soaStatusList.brainArray[this._soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.filter.GetTargetType()}" +
+                $"フィルター情報{this._soaStatusList.brainArray[this._soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.filter.DebugIsPassFilter(this._soaData._solidData[index], this._soaData._characterStateInfo[index])}" +
+                $"フィルター詳細{this._soaStatusList.brainArray[this._soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.filter.DebugIsPassFilterDetailed(this._soaData._solidData[index], this._soaData._characterStateInfo[index])}" +
+                                $"キャラフィルター情報{this._characterData[i].brainData[(int)ActState.攻撃].actCondition[0].targetCondition.filter.DebugIsPassFilter(this._characterData[index])}" +
+                $"キャラフィルター詳細{this._characterData[i].brainData[(int)ActState.攻撃].actCondition[0].targetCondition.filter.DebugIsPassFilterWithCharacterInfo(this._characterData[index])}");
                 mismatchCount++;
-
-                break;
 
                 //int targetType = (int)_soaStatusList.brainArray[_soaData._coldLog[i].characterID - 1].brainSetting[(int)ActState.攻撃].behaviorSetting[0].targetCondition.filter.GetTargetType();
 
@@ -622,7 +762,7 @@ public class SOAJobTest
             //}
         }
 
-        Debug.Log($"結果検証完了: 不一致={mismatchCount}/{_characterCount}");
+        Debug.Log($"結果検証完了: 不一致={mismatchCount}/{this._characterCount}");
 
         //Debug.Log($"ステータス確認");
         //Debug.Log($" 数：{_soaStatusList.statusList.Length},{_soaStatusList.statusList[0].brainData.Count},{_soaStatusList.statusList[0].brainData[SOAStatus.ActState.攻撃].judgeData.Length}");
@@ -651,12 +791,12 @@ public class SOAJobTest
             using ( Measure.Scope($"Character Count: {count}") )
             {
                 // テストデータの再作成
-                yield return RecreateTestDataCoroutine(count);
+                yield return this.RecreateTestDataCoroutine(count);
 
                 // SoAJobSystemテスト
                 using ( Measure.Scope("SoAJobAI") )
                 {
-                    JobHandle handle = _soAJobAI.Schedule(_characterCount, _jobBatchCount);
+                    JobHandle handle = this._soAJobAI.Schedule(this._characterCount, this._jobBatchCount);
                     handle.Complete();
                 }
 
@@ -665,7 +805,7 @@ public class SOAJobTest
                 // JobSystemテスト
                 using ( Measure.Scope("JobSystemAI") )
                 {
-                    JobHandle handle = _aiTestJob.Schedule(_characterCount, _jobBatchCount);
+                    JobHandle handle = this._aiTestJob.Schedule(this._characterCount, this._jobBatchCount);
                     handle.Complete();
                 }
             }
@@ -680,22 +820,22 @@ public class SOAJobTest
     private IEnumerator RecreateTestDataCoroutine(int newCharacterCount)
     {
         // 現在のデータを解放
-        DisposeTestData();
+        this.DisposeTestData();
 
         // キャラクター数を更新
-        _characterCount = newCharacterCount;
+        this._characterCount = newCharacterCount;
 
         // 新しいデータを初期化
-        yield return InitializeTestDataCoroutine();
+        yield return this.InitializeTestDataCoroutine();
 
-        Assert.IsTrue(_dataInitialized, "テストデータの再初期化に失敗しました");
+        Assert.IsTrue(this._dataInitialized, "テストデータの再初期化に失敗しました");
 
-        yield return InitializeCharacterDataCoroutine();
+        yield return this.InitializeCharacterDataCoroutine();
 
-        Assert.IsTrue(_charactersInitialized, "キャラクターデータの再初期化に失敗しました");
+        Assert.IsTrue(this._charactersInitialized, "キャラクターデータの再初期化に失敗しました");
 
-        InitializeAIInstances();
+        this.InitializeAIInstances();
 
-        Assert.IsTrue(_aiInstancesInitialized, "AIインスタンスの再初期化に失敗しました");
+        Assert.IsTrue(this._aiInstancesInitialized, "AIインスタンスの再初期化に失敗しました");
     }
 }

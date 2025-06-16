@@ -1,14 +1,13 @@
 using MyTool.Collections;
 using Sirenix.OdinInspector;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using static CharacterController.AIManager;
-using System.Collections.Generic;
-
 
 namespace CharacterController
 {
@@ -689,14 +688,14 @@ namespace CharacterController
             /// </summary>
             public string DebugIsPassFilter(in CharacterData charaData)
             {
-                var failedConditions = new System.Text.StringBuilder();
+                System.Text.StringBuilder failedConditions = new();
 
                 // 0. 論理削除チェック
                 if ( charaData.IsLogicalDelate() )
                 {
-                    failedConditions.AppendLine($"[論理削除チェックで失敗]");
-                    failedConditions.AppendLine($"  理由: キャラクターは論理削除されています");
-                    failedConditions.AppendLine($"  CharacterID: {charaData.hashCode}"); // IDがある場合
+                    _ = failedConditions.AppendLine($"[論理削除チェックで失敗]");
+                    _ = failedConditions.AppendLine($"  理由: キャラクターは論理削除されています");
+                    _ = failedConditions.AppendLine($"  CharacterID: {charaData.hashCode}"); // IDがある場合
                     return failedConditions.ToString();
                 }
 
@@ -712,7 +711,7 @@ namespace CharacterController
                         if ( (this.targetFeature & charaData.solidData.feature) != this.targetFeature )
                         {
                             featureFailed = true;
-                            var missingFeatures = this.targetFeature & ~charaData.solidData.feature;
+                            CharacterFeature missingFeatures = this.targetFeature & ~charaData.solidData.feature;
                             failureReason = $"AND条件失敗 - 必要な特徴が不足: {missingFeatures}";
                         }
                     }
@@ -728,13 +727,13 @@ namespace CharacterController
 
                     if ( featureFailed )
                     {
-                        failedConditions.AppendLine($"[特徴条件で失敗]");
-                        failedConditions.AppendLine($"  フィールド: targetFeature");
-                        failedConditions.AppendLine($"  期待値: {this.targetFeature} (0x{this.targetFeature:X})");
-                        failedConditions.AppendLine($"  実際の値: {charaData.solidData.feature} (0x{charaData.solidData.feature:X})");
-                        failedConditions.AppendLine($"  判定方法: {(this.isAndFeatureCheck == BitableBool.TRUE ? "AND" : "OR")}");
-                        failedConditions.AppendLine($"  理由: {failureReason}");
-                        failedConditions.AppendLine();
+                        _ = failedConditions.AppendLine($"[特徴条件で失敗]");
+                        _ = failedConditions.AppendLine($"  フィールド: targetFeature");
+                        _ = failedConditions.AppendLine($"  期待値: {this.targetFeature} (0x{this.targetFeature:X})");
+                        _ = failedConditions.AppendLine($"  実際の値: {charaData.solidData.feature} (0x{charaData.solidData.feature:X})");
+                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndFeatureCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  理由: {failureReason}");
+                        _ = failedConditions.AppendLine();
                         return failedConditions.ToString();
                     }
                 }
@@ -751,7 +750,7 @@ namespace CharacterController
                         if ( (this.targetEffect & charaData.liveData.nowEffect) != this.targetEffect )
                         {
                             effectFailed = true;
-                            var missingEffects = this.targetEffect & ~charaData.liveData.nowEffect;
+                            SpecialEffect missingEffects = this.targetEffect & ~charaData.liveData.nowEffect;
                             failureReason = $"AND条件失敗 - 必要な効果が不足: {missingEffects}";
                         }
                     }
@@ -767,13 +766,13 @@ namespace CharacterController
 
                     if ( effectFailed )
                     {
-                        failedConditions.AppendLine($"[特殊効果条件で失敗]");
-                        failedConditions.AppendLine($"  フィールド: targetEffect");
-                        failedConditions.AppendLine($"  期待値: {this.targetEffect} (0x{this.targetEffect:X})");
-                        failedConditions.AppendLine($"  実際の値: {charaData.liveData.nowEffect} (0x{charaData.liveData.nowEffect:X})");
-                        failedConditions.AppendLine($"  判定方法: {(this.isAndEffectCheck == BitableBool.TRUE ? "AND" : "OR")}");
-                        failedConditions.AppendLine($"  理由: {failureReason}");
-                        failedConditions.AppendLine();
+                        _ = failedConditions.AppendLine($"[特殊効果条件で失敗]");
+                        _ = failedConditions.AppendLine($"  フィールド: targetEffect");
+                        _ = failedConditions.AppendLine($"  期待値: {this.targetEffect} (0x{this.targetEffect:X})");
+                        _ = failedConditions.AppendLine($"  実際の値: {charaData.liveData.nowEffect} (0x{charaData.liveData.nowEffect:X})");
+                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndEffectCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  理由: {failureReason}");
+                        _ = failedConditions.AppendLine();
                         return failedConditions.ToString();
                     }
                 }
@@ -790,7 +789,7 @@ namespace CharacterController
                         if ( (this.targetEvent & charaData.liveData.brainEvent) != this.targetEvent )
                         {
                             eventFailed = true;
-                            var missingEvents = this.targetEvent & ~charaData.liveData.brainEvent;
+                            BrainEventFlagType missingEvents = this.targetEvent & ~charaData.liveData.brainEvent;
                             failureReason = $"AND条件失敗 - 必要なイベントが不足: {missingEvents}";
                         }
                     }
@@ -806,19 +805,19 @@ namespace CharacterController
 
                     if ( eventFailed )
                     {
-                        failedConditions.AppendLine($"[イベント条件で失敗]");
-                        failedConditions.AppendLine($"  フィールド: targetEvent");
-                        failedConditions.AppendLine($"  期待値: {this.targetEvent} (0x{this.targetEvent:X})");
-                        failedConditions.AppendLine($"  実際の値: {charaData.liveData.brainEvent} (0x{charaData.liveData.brainEvent:X})");
-                        failedConditions.AppendLine($"  判定方法: {(this.isAndEventCheck == BitableBool.TRUE ? "AND" : "OR")}");
-                        failedConditions.AppendLine($"  理由: {failureReason}");
-                        failedConditions.AppendLine();
+                        _ = failedConditions.AppendLine($"[イベント条件で失敗]");
+                        _ = failedConditions.AppendLine($"  フィールド: targetEvent");
+                        _ = failedConditions.AppendLine($"  期待値: {this.targetEvent} (0x{this.targetEvent:X})");
+                        _ = failedConditions.AppendLine($"  実際の値: {charaData.liveData.brainEvent} (0x{charaData.liveData.brainEvent:X})");
+                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndEventCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  理由: {failureReason}");
+                        _ = failedConditions.AppendLine();
                         return failedConditions.ToString();
                     }
                 }
 
                 // 4. 残りの条件（個別チェック）
-                var remainingFailures = new List<string>();
+                List<string> remainingFailures = new();
 
                 // 陣営チェック
                 if ( this.targetType != 0 && (this.targetType & charaData.liveData.belong) == 0 )
@@ -846,11 +845,12 @@ namespace CharacterController
 
                 if ( remainingFailures.Count > 0 )
                 {
-                    failedConditions.AppendLine($"[その他の条件で失敗]");
-                    foreach ( var failure in remainingFailures )
+                    _ = failedConditions.AppendLine($"[その他の条件で失敗]");
+                    foreach ( string failure in remainingFailures )
                     {
-                        failedConditions.AppendLine(failure);
+                        _ = failedConditions.AppendLine(failure);
                     }
+
                     return failedConditions.ToString();
                 }
 
@@ -863,35 +863,35 @@ namespace CharacterController
             /// </summary>
             public string DebugIsPassFilterWithCharacterInfo(in CharacterData charaData)
             {
-                var result = new System.Text.StringBuilder();
+                System.Text.StringBuilder result = new();
 
                 // 基本的なフィルタ結果
-                result.AppendLine("=== フィルタチェック結果 ===");
-                result.AppendLine(DebugIsPassFilter(charaData));
+                _ = result.AppendLine("=== フィルタチェック結果 ===");
+                _ = result.AppendLine(this.DebugIsPassFilter(charaData));
 
                 // キャラクターの現在の状態を出力
-                result.AppendLine("\n=== キャラクターの現在状態 ===");
-                result.AppendLine("[SolidData]");
-                result.AppendLine($"  feature: {charaData.solidData.feature} (0x{charaData.solidData.feature:X})");
-                result.AppendLine($"  weakPoint: {charaData.solidData.weakPoint} (0x{charaData.solidData.weakPoint:X})");
-                result.AppendLine($"  attackElement: {charaData.solidData.attackElement} (0x{charaData.solidData.attackElement:X})");
+                _ = result.AppendLine("\n=== キャラクターの現在状態 ===");
+                _ = result.AppendLine("[SolidData]");
+                _ = result.AppendLine($"  feature: {charaData.solidData.feature} (0x{charaData.solidData.feature:X})");
+                _ = result.AppendLine($"  weakPoint: {charaData.solidData.weakPoint} (0x{charaData.solidData.weakPoint:X})");
+                _ = result.AppendLine($"  attackElement: {charaData.solidData.attackElement} (0x{charaData.solidData.attackElement:X})");
 
-                result.AppendLine("\n[LiveData]");
-                result.AppendLine($"  belong: {charaData.liveData.belong} (0x{charaData.liveData.belong:X})");
-                result.AppendLine($"  actState: {charaData.liveData.actState} (0x{charaData.liveData.actState:X})");
-                result.AppendLine($"  nowEffect: {charaData.liveData.nowEffect} (0x{charaData.liveData.nowEffect:X})");
-                result.AppendLine($"  brainEvent: {charaData.liveData.brainEvent} (0x{charaData.liveData.brainEvent:X})");
-                result.AppendLine($"  論理削除状態: {(charaData.IsLogicalDelate() ? "削除済み" : "有効")}");
+                _ = result.AppendLine("\n[LiveData]");
+                _ = result.AppendLine($"  belong: {charaData.liveData.belong} (0x{charaData.liveData.belong:X})");
+                _ = result.AppendLine($"  actState: {charaData.liveData.actState} (0x{charaData.liveData.actState:X})");
+                _ = result.AppendLine($"  nowEffect: {charaData.liveData.nowEffect} (0x{charaData.liveData.nowEffect:X})");
+                _ = result.AppendLine($"  brainEvent: {charaData.liveData.brainEvent} (0x{charaData.liveData.brainEvent:X})");
+                _ = result.AppendLine($"  論理削除状態: {(charaData.IsLogicalDelate() ? "削除済み" : "有効")}");
 
                 // フィルタの設定値も出力
-                result.AppendLine("\n=== フィルタ設定 ===");
-                result.AppendLine($"  targetType: {this.targetType} (0x{this.targetType:X})");
-                result.AppendLine($"  targetFeature: {this.targetFeature} (0x{this.targetFeature:X}) [{this.isAndFeatureCheck}]");
-                result.AppendLine($"  targetEffect: {this.targetEffect} (0x{this.targetEffect:X}) [{this.isAndEffectCheck}]");
-                result.AppendLine($"  targetState: {this.targetState} (0x{this.targetState:X})");
-                result.AppendLine($"  targetEvent: {this.targetEvent} (0x{this.targetEvent:X}) [{this.isAndEventCheck}]");
-                result.AppendLine($"  targetWeakPoint: {this.targetWeakPoint} (0x{this.targetWeakPoint:X})");
-                result.AppendLine($"  targetUseElement: {this.targetUseElement} (0x{this.targetUseElement:X})");
+                _ = result.AppendLine("\n=== フィルタ設定 ===");
+                _ = result.AppendLine($"  targetType: {this.targetType} (0x{this.targetType:X})");
+                _ = result.AppendLine($"  targetFeature: {this.targetFeature} (0x{this.targetFeature:X}) [{this.isAndFeatureCheck}]");
+                _ = result.AppendLine($"  targetEffect: {this.targetEffect} (0x{this.targetEffect:X}) [{this.isAndEffectCheck}]");
+                _ = result.AppendLine($"  targetState: {this.targetState} (0x{this.targetState:X})");
+                _ = result.AppendLine($"  targetEvent: {this.targetEvent} (0x{this.targetEvent:X}) [{this.isAndEventCheck}]");
+                _ = result.AppendLine($"  targetWeakPoint: {this.targetWeakPoint} (0x{this.targetWeakPoint:X})");
+                _ = result.AppendLine($"  targetUseElement: {this.targetUseElement} (0x{this.targetUseElement:X})");
 
                 return result.ToString();
             }
@@ -901,13 +901,13 @@ namespace CharacterController
             /// </summary>
             public string SimulatePassConditions(in CharacterData charaData)
             {
-                var result = new System.Text.StringBuilder();
-                result.AppendLine("=== 通過条件シミュレーション ===");
+                System.Text.StringBuilder result = new();
+                _ = result.AppendLine("=== 通過条件シミュレーション ===");
 
                 // 各条件について、どうすれば通るかを提示
                 if ( charaData.IsLogicalDelate() )
                 {
-                    result.AppendLine("x 論理削除されているため、どんな条件でも通過不可");
+                    _ = result.AppendLine("x 論理削除されているため、どんな条件でも通過不可");
                     return result.ToString();
                 }
 
@@ -916,27 +916,27 @@ namespace CharacterController
                 {
                     if ( this.isAndFeatureCheck == BitableBool.TRUE )
                     {
-                        var required = this.targetFeature;
-                        var current = charaData.solidData.feature;
-                        var missing = required & ~current;
+                        CharacterFeature required = this.targetFeature;
+                        CharacterFeature current = charaData.solidData.feature;
+                        CharacterFeature missing = required & ~current;
                         if ( missing != 0 )
                         {
-                            result.AppendLine($"x 特徴条件(AND): 追加で必要なフラグ = {missing} (0x{missing:X})");
+                            _ = result.AppendLine($"x 特徴条件(AND): 追加で必要なフラグ = {missing} (0x{missing:X})");
                         }
                         else
                         {
-                            result.AppendLine($"o 特徴条件(AND): 条件を満たしています");
+                            _ = result.AppendLine($"o 特徴条件(AND): 条件を満たしています");
                         }
                     }
                     else
                     {
                         if ( (this.targetFeature & charaData.solidData.feature) == 0 )
                         {
-                            result.AppendLine($"x 特徴条件(OR): いずれかのフラグが必要 = {this.targetFeature} (0x{this.targetFeature:X})");
+                            _ = result.AppendLine($"x 特徴条件(OR): いずれかのフラグが必要 = {this.targetFeature} (0x{this.targetFeature:X})");
                         }
                         else
                         {
-                            result.AppendLine($"o 特徴条件(OR): 条件を満たしています");
+                            _ = result.AppendLine($"o 特徴条件(OR): 条件を満たしています");
                         }
                     }
                 }
@@ -1057,7 +1057,7 @@ namespace CharacterController
             {
                 this.brainData = new NativeHashMap<int, CharacterBrainStatusForJob>(status.brainData.Count, Allocator.Persistent);
 
-                foreach ( var item in status.brainData )
+                foreach ( KeyValuePair<ActState, CharacterBrainStatus> item in status.brainData )
                 {
                     CharacterBrainStatusForJob newData = new(item.Value, Allocator.Persistent);
                     this.brainData.Add((int)item.Key, newData);

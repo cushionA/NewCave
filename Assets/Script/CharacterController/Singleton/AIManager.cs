@@ -10,7 +10,6 @@ using UnityEngine;
 using static CharacterController.BaseController;
 using static CharacterController.BrainStatus;
 
-
 namespace CharacterController
 {
     /// <summary>

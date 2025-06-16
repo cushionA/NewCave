@@ -107,7 +107,7 @@ namespace CharacterController
             /// </summary>
             public string GetDebugData()
             {
-                return $"{selectActCondition}”Ô–Ú‚ÌğŒA{(TargetSelectCondition)selectTargetCondition}({selectTargetCondition})‚Å”»’f";
+                return $"{this.selectActCondition}”Ô–Ú‚ÌğŒA{(TargetSelectCondition)this.selectTargetCondition}({this.selectTargetCondition})‚Å”»’f";
             }
 
         }
@@ -214,5 +214,4 @@ namespace CharacterController
 
     }
 }
-
 

@@ -1,5 +1,3 @@
-using System;
-using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using Unity.Burst;
 using Unity.Collections;
@@ -7,7 +5,6 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using static CharacterController.AIManager;
 using static CharacterController.BaseController;
 using static CharacterController.BrainStatus;
 using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
@@ -79,7 +76,14 @@ namespace CharacterController
             // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
             if ( this.nowTime - this.characterData[index].lastJudgeTime < this.characterData[index].brainData[nowMode].judgeInterval )
             {
-                resultData.result = JudgeResult.何もなし;
+                if ( this.nowTime - this.characterData[index].lastJudgeTime < this.characterData[index].moveJudgeInterval )
+                {
+                    resultData.result = JudgeResult.方向転換をした;
+                }
+                else
+                {
+                    resultData.result = JudgeResult.何もなし;
+                }
 
                 // 移動方向判断だけはする。
                 //　正確には距離判定。
@@ -145,7 +149,6 @@ namespace CharacterController
                 {
                     continue;
                 }
-
 
                 // 行動判断。
                 // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
@@ -407,7 +410,7 @@ namespace CharacterController
                     int judgeDist = condition.actCondition.judgeValue * condition.actCondition.judgeValue;
 
                     // 今の距離の二乗。
-                    int distance = (int)(math.distancesq(targetData.liveData.nowPosition, myData.liveData.nowPosition));
+                    int distance = (int)math.distancesq(targetData.liveData.nowPosition, myData.liveData.nowPosition);
 
                     // 通常は以上、逆の場合は以下
                     if ( condition.actCondition.isInvert == BitableBool.FALSE )
