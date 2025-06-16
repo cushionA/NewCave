@@ -1,5 +1,3 @@
-using System;
-using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using Unity.Burst;
 using Unity.Collections;
@@ -7,7 +5,6 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using static CharacterController.AIManager;
 using static CharacterController.BaseController;
 using static CharacterController.BrainStatus;
 using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
@@ -79,7 +76,14 @@ namespace CharacterController
             // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
             if ( this.nowTime - this.characterData[index].lastJudgeTime < this.characterData[index].brainData[nowMode].judgeInterval )
             {
-                resultData.result = JudgeResult.何もなし;
+                if ( this.nowTime - this.characterData[index].lastJudgeTime < this.characterData[index].moveJudgeInterval )
+                {
+                    resultData.result = JudgeResult.方向転換をした;
+                }
+                else
+                {
+                    resultData.result = JudgeResult.何もなし;
+                }
 
                 // 移動方向判断だけはする。
                 //　正確には距離判定。
@@ -137,23 +141,6 @@ namespace CharacterController
             // 初期値は最後の条件、つまり条件なしの補欠条件
             int selectMove = myData.brainData[nowMode].actCondition.Length - 1;
 
-            //// ヘイト条件確認用の一時バッファ
-            //NativeArray<Vector2Int> hateIndex = new NativeArray<Vector2Int>(myData.brainData[nowMode].hateCondition.Length, Allocator.Temp);
-            //NativeArray<TargetJudgeData> hateCondition = myData.brainData[nowMode].hateCondition;
-
-            //// ヘイト確認バッファの初期化
-            //for ( int i = 0; i < hateIndex.Length; i++ )
-            //{
-            //    if ( hateCondition[i].isInvert )
-            //    {
-            //        hateIndex[i].Set(int.MaxValue, -1);
-            //    }
-            //    else
-            //    {
-            //        hateIndex[i].Set(int.MinValue, -1);
-            //    }
-            //}
-
             // キャラデータを確認する。
             for ( int i = 0; i < this.characterData.Length; i++ )
             {
@@ -162,19 +149,6 @@ namespace CharacterController
                 {
                     continue;
                 }
-
-                // 読み取り専用のNativeContainerへのアクセスを避けるためにヘイト系の処理は分離することに
-
-                //// まずヘイト判断。
-                //// 各ヘイト条件について、条件更新を記録する。
-                //for ( int j = 0; j < hateCondition.Length; j++ )
-                //{
-                //    int value = hateIndex[j].x;
-                //    if ( targetFunctions[(int)hateCondition[j].judgeCondition].Invoke(hateCondition[j], characterData[i], ref value) )
-                //    {
-                //        hateIndex[j].Set(value, i);
-                //    }
-                //}
 
                 // 行動判断。
                 // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
@@ -247,14 +221,13 @@ namespace CharacterController
             // 比較用初期値はInvertによって変動。
             TargetJudgeData targetJudgeData = myData.brainData[nowMode].actCondition[selectMove].targetCondition;
 
-            _ = targetJudgeData.isInvert == BitableBool.TRUE ? int.MaxValue : int.MinValue;
             int newTargetHash = 0;
 
             // 状態変更の場合ここで戻る。
             if ( targetJudgeData.judgeCondition == TargetSelectCondition.不要_状態変更 )
             {
                 // 指定状態に移行
-                resultData.result = JudgeResult.新しく判断をした;
+                resultData.result = JudgeResult.状態を変更した;
                 resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
 
                 // 判断結果を設定。
@@ -284,6 +257,9 @@ namespace CharacterController
             resultData.result = JudgeResult.新しく判断をした;
             resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
             resultData.targetHash = newTargetHash;
+
+            resultData.selectActCondition = selectMove;
+            resultData.selectTargetCondition = (int)myData.brainData[nowMode].actCondition[selectMove].targetCondition.judgeCondition;
 
             // 判断結果を設定。
             this.judgeResult[index] = resultData;
@@ -383,7 +359,7 @@ namespace CharacterController
                     // チームのヘイトはint2で確認する。
                     int2 hateKey = new((int)myData.liveData.belong, targetHash);
 
-                    if ( tHate.TryGetValue(targetHash, out int teamHate) )
+                    if ( tHate.TryGetValue(hateKey, out int teamHate) )
                     {
                         targetHate += teamHate;
                     }
@@ -434,7 +410,7 @@ namespace CharacterController
                     int judgeDist = condition.actCondition.judgeValue * condition.actCondition.judgeValue;
 
                     // 今の距離の二乗。
-                    int distance = (int)(math.distancesq(targetData.liveData.nowPosition, myData.liveData.nowPosition));
+                    int distance = (int)math.distancesq(targetData.liveData.nowPosition, myData.liveData.nowPosition);
 
                     // 通常は以上、逆の場合は以下
                     if ( condition.actCondition.isInvert == BitableBool.FALSE )
@@ -1250,7 +1226,7 @@ namespace CharacterController
 
                         // チームのヘイトはint2で確認する。
                         int2 hateKey = new((int)cData[index].liveData.belong, targetHash);
-                        if ( tHate.TryGetValue(targetHash, out int teamHate) )
+                        if ( tHate.TryGetValue(hateKey, out int teamHate) )
                         {
                             targetHate += teamHate;
                         }

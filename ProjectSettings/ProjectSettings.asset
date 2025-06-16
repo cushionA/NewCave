@@ -141,7 +141,8 @@ PlayerSettings:
   visionOSBundleVersion: 1.0
   tvOSBundleVersion: 1.0
   bundleVersion: 1.0
-  preloadedAssets: []
+  preloadedAssets:
+  - {fileID: -944628639613478452, guid: 2bcd2660ca9b64942af0de543d8d7100, type: 3}
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   m_HolographicPauseOnTrackingLoss: 1
@@ -580,7 +581,9 @@ PlayerSettings:
   platformArchitecture: {}
   scriptingBackend:
     Android: 1
-  il2cppCompilerConfiguration: {}
+    Standalone: 1
+  il2cppCompilerConfiguration:
+    Standalone: 1
   il2cppCodeGeneration: {}
   il2cppStacktraceInformation: {}
   managedStrippingLevel:
@@ -592,6 +595,7 @@ PlayerSettings:
     PS4: 1
     PS5: 1
     QNX: 1
+    Standalone: 2
     VisionOS: 1
     WebGL: 1
     Windows Store Apps: 1
@@ -600,7 +604,7 @@ PlayerSettings:
     tvOS: 1
   incrementalIl2cppBuild: {}
   suppressCommonWarnings: 1
-  allowUnsafeCode: 0
+  allowUnsafeCode: 1
   useDeterministicCompilation: 1
   additionalIl2CppArgs: 
   scriptingRuntimeVersion: 1
@@ -611,7 +615,7 @@ PlayerSettings:
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
   metroPackageName: NewCave
-  metroPackageVersion: 
+  metroPackageVersion: 1.0.0.0
   metroCertificatePath: 
   metroCertificatePassword: 
   metroCertificateSubject: 
@@ -619,7 +623,7 @@ PlayerSettings:
   metroCertificateNotAfter: 0000000000000000
   metroApplicationDescription: NewCave
   wsaImages: {}
-  metroTileShortName: 
+  metroTileShortName: NewCave
   metroTileShowName: 0
   metroMediumTileShowName: 0
   metroLargeTileShowName: 0

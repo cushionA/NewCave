@@ -1,15 +1,14 @@
-using MyTool.Collections;
+using CharacterController;
 using Sirenix.OdinInspector;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
+using Unity.Mathematics;
 using UnityEngine;
 using static CharacterController.AIManager;
-using Unity.Mathematics;
 using static CharacterController.BrainStatus;
-
 
 namespace TestScript.SOATest
 {
@@ -155,12 +154,13 @@ namespace TestScript.SOATest
         /// <summary>
         /// キャラクターが所属する陣営
         /// </summary>
+        [Flags]
         public enum CharacterSide
         {
-            プレイヤー = 0,// 味方
-            魔物 = 1,// 一般的な敵
-            その他 = 2,// それ以外
-            指定なし = 3
+            プレイヤー = 1 << 0,// 味方
+            魔物 = 1 << 1,// 一般的な敵
+            その他 = 1 << 2,// それ以外
+            指定なし = 0
         }
 
         /// <summary>
@@ -318,164 +318,14 @@ namespace TestScript.SOATest
         #region 実行時キャラクターデータ関連の構造体定義
 
         /// <summary>
-        /// Jobシステムで使用するキャラクターデータ構造体。
-        /// 全構造体をまとめるが、これを直接は渡さず、中身の配列構造を渡すように
-        /// やっぱこれ使わないわ。コレクションを改造して、各パラメーターの配列からデータを取れるように。
-        /// 代わりにSoA の複雑構造を無視してデータを取れるようにプロパティを組む
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct CharacterData : IDisposable, ILogicalDelate
-        {
-            /// <summary>
-            /// 新しいキャラクターデータを取得する。
-            /// </summary>
-            /// <param name="status"></param>
-            /// <param name="gameObject"></param>
-            public CharacterData(SOAStatus status, GameObject gameObject)
-            {
-                this.brainData = new NativeHashMap<int, CharacterSOAStatusForJob>(status.brainData.Count, Allocator.Persistent);
-
-                foreach ( var item in status.brainData )
-                {
-                    CharacterSOAStatusForJob newData = new(item.Value, Allocator.Persistent);
-                    this.brainData.Add((int)item.Key, newData);
-                }
-
-                this.hashCode = gameObject.GetHashCode();
-                //this.liveData = new CharacterUpdateData(status.baseData, gameObject.transform.position);
-                this.solidData = status.solidData;
-                this.targetingCount = 0;
-                // 最初はマイナスで10000を入れることですぐ動けるように
-                this.lastJudgeTime = -10000;
-
-                this.stateInfo = new CharacterStateInfo(status.baseData);
-                this.baseInfo = new CharacterBaseInfo(status.baseData, (Vector2)gameObject.transform.position);
-
-                this.personalHate = new NativeHashMap<int, int>(7, Allocator.Persistent);
-                this.shortRangeCharacter = new UnsafeList<int>(7, Allocator.Persistent);
-
-                this.moveJudgeInterval = status.moveJudgeInterval;
-                this.lastMoveJudgeTime = 0;// どうせ行動判断時に振り向くから
-
-                // 最初は論理削除フラグなし。
-                this.isLogicalDelate = BitableBool.FALSE;
-            }
-
-            /// <summary>
-            /// 固定のデータ。
-            /// </summary>
-            public SolidData solidData;
-
-            /// <summary>
-            /// キャラのAIの設定。(Jobバージョン)
-            /// モードごとにモードEnumをint変換した数をインデックスにした配列になる。
-            /// </summary>
-            public NativeHashMap<int, CharacterSOAStatusForJob> brainData;
-
-            ///// <summary>
-            ///// 更新されうるデータ。
-            ///// </summary>
-            //public CharacterUpdateData liveData;
-
-            public CharacterBaseInfo baseInfo;
-
-            public CharacterStateInfo stateInfo;
-
-            /// <summary>
-            /// 自分を狙ってる敵の数。
-            /// ボスか指揮官は無視でよさそう
-            /// 今攻撃してるやつも攻撃を終えたら別のターゲットを狙う。
-            /// このタイミングで割りこめるやつが割り込む
-            /// あくまでヘイト値を減らす感じで。一旦待機になって、ヘイト減るだけなので殴られたら殴り返すよ
-            /// 遠慮状態以外なら遠慮になるし、遠慮中でなお一番ヘイト高いなら攻撃して、その次は遠慮になる
-            /// </summary>
-            public int targetingCount;
-
-            /// <summary>
-            /// 最後に判断した時間。
-            /// </summary>
-            public float lastJudgeTime;
-
-            /// <summary>
-            /// 最後に移動判断した時間。
-            /// </summary>
-            public float lastMoveJudgeTime;
-
-            /// <summary>
-            /// キャラクターのハッシュ値を保存しておく。
-            /// </summary>
-            public int hashCode;
-
-            /// <summary>
-            /// 攻撃してきた相手とか、直接的な条件に当てはまった相手のヘイトだけ記録する。
-            /// </summary>
-            public NativeHashMap<int, int> personalHate;
-
-            /// <summary>
-            /// 近くにいるキャラクターの記録。
-            /// これはセンサーで断続的に取得する参考値。
-            /// 要素数上限は7~10の予定
-            /// </summary>
-            public UnsafeList<int> shortRangeCharacter;
-
-            /// <summary>
-            /// AIの移動判断間隔
-            /// </summary>
-            [Header("移動判断間隔")]
-            public float moveJudgeInterval;
-
-            /// <summary>
-            /// 論理削除フラグ。
-            /// </summary>
-            /// 
-            private BitableBool isLogicalDelate;
-
-            /// <summary>
-            /// NativeContainerを含むメンバーを破棄。
-            /// AIManagerが責任を持って破棄する。
-            /// </summary>
-            public void Dispose()
-            {
-                this.brainData.Dispose();
-                this.personalHate.Dispose();
-                this.shortRangeCharacter.Dispose();
-            }
-
-            /// <summary>
-            /// 論理削除フラグの確認。
-            /// </summary>
-            /// <returns>真であれば論理削除済み</returns>
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public bool IsLogicalDelate()
-            {
-                return this.isLogicalDelate == BitableBool.TRUE;
-            }
-
-            /// <summary>
-            /// 論理削除を実行する。
-            /// </summary>
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            public void LogicalDelete()
-            {
-                this.isLogicalDelate = BitableBool.TRUE;
-            }
-        }
-
-        /// <summary>
         /// BaseImfo region - キャラクターの基本情報（HP、MP、位置）
-        /// サイズ: 36バイト
+        /// サイズ: 32バイト
         /// 用途: 毎フレーム更新される基本ステータス(ID以外)
         /// SoA OK
         /// </summary>
         [StructLayout(LayoutKind.Sequential)]
         public struct CharacterBaseInfo
         {
-            /// <summary>
-            /// キャラクターのID
-            /// </summary>
-            public readonly int characterID;
-
             /// <summary>
             /// 最大体力
             /// </summary>
@@ -516,8 +366,8 @@ namespace TestScript.SOATest
             /// </summary>
             public void UpdateRatios()
             {
-                hpRatio = maxHp > 0 ? (currentHp * 100) / maxHp : 0;
-                mpRatio = maxMp > 0 ? (currentMp * 100) / maxMp : 0;
+                this.hpRatio = this.maxHp > 0 ? this.currentHp * 100 / this.maxHp : 0;
+                this.mpRatio = this.maxMp > 0 ? this.currentMp * 100 / this.maxMp : 0;
             }
 
             /// <summary>
@@ -525,15 +375,104 @@ namespace TestScript.SOATest
             /// </summary>
             public CharacterBaseInfo(in CharacterBaseData baseData, Vector2 initialPosition)
             {
-                characterID = baseData.characterID;
-                maxHp = baseData.hp;
-                maxMp = baseData.mp;
-                currentHp = baseData.hp;
-                currentMp = baseData.mp;
-                hpRatio = 100;
-                mpRatio = 100;
-                nowPosition = initialPosition;
+                this.maxHp = baseData.hp;
+                this.maxMp = baseData.mp;
+                this.currentHp = baseData.hp;
+                this.currentMp = baseData.mp;
+                this.hpRatio = 100;
+                this.mpRatio = 100;
+                this.nowPosition = initialPosition;
             }
+        }
+
+        /// <summary>
+        /// 常に変わらないデータを格納する構造体。
+        /// BaseDataとの違いは、初期化以降頻繁に参照する必要があるか。
+        /// SoA OK 20Byte
+        /// </summary>
+        [Serializable]
+        [StructLayout(LayoutKind.Sequential)]
+        public struct SolidData
+        {
+
+            /// <summary>
+            /// 攻撃属性を示す列挙型
+            /// ビット演算で見る
+            /// NPCだけ入れる
+            /// なに属性の攻撃をしてくるかというところ
+            /// </summary>
+            [Header("攻撃属性")]
+            public Element attackElement;
+
+            /// <summary>
+            /// 弱点属性を示す列挙型
+            /// ビット演算で見る
+            /// NPCだけ入れる
+            /// </summary>
+            [Header("弱点属性")]
+            public Element weakPoint;
+
+            /// <summary>
+            /// キャラの属性というか
+            /// 特徴を示す。種類も包括
+            /// </summary>
+            [Header("キャラクター特徴")]
+            public CharacterFeature feature;
+
+            /// <summary>
+            /// キャラの階級。<br/>
+            /// これが上なほど味方の中で同じ敵をターゲットにしててもお控えしなくて済む、優先的に殴れる。<br/>
+            /// あとランク低い味方に命令飛ばしたりできる。
+            /// </summary>
+            [Header("チーム内での階級")]
+            public CharacterRank rank;
+
+            /// <summary>
+            /// この数値以上の敵から狙われている相手がターゲットになった場合、一旦次の判断までは待機になる
+            /// その次の判断でやっぱり一番ヘイト高ければ狙う。(狙われまくってる相手へのヘイトは下がるので、普通はその次の判断でべつのやつが狙われる)
+            /// 様子伺う、みたいなステート入れるか専用で
+            /// 一定以上に狙われてる相手かつ、様子伺ってるキャラの場合だけヘイト下げるようにしよう。
+            /// </summary>
+            [Header("ターゲット上限")]
+            [Tooltip("この数値以上の敵から狙われている相手が攻撃対象になった場合、一旦次の判断までは待機になる")]
+            public int targetingLimit;
+        }
+
+        /// <summary>
+        /// 参照頻度が少なく、加えて連続参照されないデータを集めた構造体。
+        /// 16byte
+        /// </summary>
+        public struct CharaColdLog
+        {
+            /// <summary>
+            /// キャラクターのID
+            /// </summary>
+            public readonly int characterID;
+
+            /// <summary>
+            /// キャラクターのハッシュ値を保存しておく。
+            /// </summary>
+            public int hashCode;
+
+            /// <summary>
+            /// 最後に判断した時間。
+            /// </summary>
+            public float lastJudgeTime;
+
+            /// <summary>
+            /// 最後に移動判断した時間。
+            /// </summary>
+            public float lastMoveJudgeTime;
+
+            public CharaColdLog(SOAStatus status, GameObject gameObject)
+            {
+                this.characterID = status.characterID;
+                this.hashCode = gameObject.GetHashCode();
+                // 最初はマイナスで10000を入れることですぐ動けるように
+                this.lastJudgeTime = -10000;
+                this.lastMoveJudgeTime = -10000;
+            }
+
         }
 
         /// <summary>
@@ -561,7 +500,7 @@ namespace TestScript.SOATest
             /// </summary>
             public void UpdateDisplayAttack()
             {
-                dispAtk = atk.ReturnSum();
+                this.dispAtk = this.atk.ReturnSum();
             }
 
             /// <summary>
@@ -569,8 +508,8 @@ namespace TestScript.SOATest
             /// </summary>
             public CharacterAtkStatus(in CharacterBaseData baseData)
             {
-                atk = baseData.baseAtk;
-                dispAtk = atk.ReturnSum();
+                this.atk = baseData.baseAtk;
+                this.dispAtk = this.atk.ReturnSum();
             }
         }
 
@@ -600,7 +539,7 @@ namespace TestScript.SOATest
             /// </summary>
             public void UpdateDisplayDefense()
             {
-                dispDef = def.ReturnSum();
+                this.dispDef = this.def.ReturnSum();
             }
 
             /// <summary>
@@ -608,8 +547,8 @@ namespace TestScript.SOATest
             /// </summary>
             public CharacterDefStatus(in CharacterBaseData baseData)
             {
-                def = baseData.baseDef;
-                dispDef = def.ReturnSum();
+                this.def = baseData.baseDef;
+                this.dispDef = this.def.ReturnSum();
             }
         }
 
@@ -652,12 +591,22 @@ namespace TestScript.SOATest
             public BrainEventFlagType brainEvent;
 
             /// <summary>
+            /// 自分を狙ってる敵の数。
+            /// ボスか指揮官は無視でよさそう
+            /// 今攻撃してるやつも攻撃を終えたら別のターゲットを狙う。
+            /// このタイミングで割りこめるやつが割り込む
+            /// あくまでヘイト値を減らす感じで。一旦待機になって、ヘイト減るだけなので殴られたら殴り返すよ
+            /// 遠慮状態以外なら遠慮になるし、遠慮中でなお一番ヘイト高いなら攻撃して、その次は遠慮になる
+            /// </summary>
+            public int targetingCount;
+
+            /// <summary>
             /// 状態をリセット（初期化時用）
             /// </summary>
             public void ResetStates()
             {
-                nowEffect = SpecialEffect.なし;
-                brainEvent = BrainEventFlagType.None;
+                this.nowEffect = SpecialEffect.なし;
+                this.brainEvent = BrainEventFlagType.None;
             }
 
             /// <summary>
@@ -665,20 +614,19 @@ namespace TestScript.SOATest
             /// </summary>
             public CharacterStateInfo(in CharacterBaseData baseData)
             {
-                belong = baseData.initialBelong;
-                actState = baseData.initialMove;
-                nowEffect = SpecialEffect.なし;
-                brainEvent = BrainEventFlagType.None;
+                this.belong = baseData.initialBelong;
+                this.actState = baseData.initialMove;
+                this.nowEffect = SpecialEffect.なし;
+                this.brainEvent = BrainEventFlagType.None;
+                this.targetingCount = 0;
             }
         }
 
-
         #endregion キャラクターデータ関連の構造体定義
 
-        #region 固定データ
+        #region SoA対象外
 
-
-        #region 判断関連
+        #region 判断関連(Job使用)
 
         /// <summary>
         /// AIの設定。
@@ -686,7 +634,24 @@ namespace TestScript.SOATest
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
-        public struct CharacterSOAStatus
+        public struct BrainSetting
+        {
+
+            /// <summary>
+            /// 行動関連の設定データ
+            /// </summary>
+            [Header("行動設定")]
+            public BehaviorData[] judgeData;
+
+        }
+
+        /// <summary>
+        /// AIの設定。（Jobシステム仕様）
+        /// ステータスのCharacterSOAStatusから移植する。
+        /// 運用法としてはReadOnlyで、各Jobの時に現在の行動時のBrainSettingと判断間隔を抜いてそれきり
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BrainDataForJob : IDisposable
         {
             /// <summary>
             /// AIの判断間隔
@@ -695,18 +660,56 @@ namespace TestScript.SOATest
             public float judgeInterval;
 
             /// <summary>
-            /// 行動関連の設定データ
+            /// AIの移動判断間隔
             /// </summary>
-            [Header("行動設定")]
-            public BehaviorData[] actCondition;
+            [Header("移動判断間隔")]
+            public float moveJudgeInterval;
 
             /// <summary>
-            /// 攻撃以外の行動条件データ.
-            /// 最初の要素ほど優先度高いので重点。
+            /// ActStateを変換した int をキーとして行動のデータを持つ
             /// </summary>
-            [Header("ヘイト条件データ")]
-            public TargetJudgeData[] hateCondition;
+            public NativeHashMap<int, BrainSettingForJob> brainSetting;
 
+            /// <summary>
+            /// ステータスのデータからJob用のデータを構築する。
+            /// </summary>
+            /// <param name="sourceDic"></param>
+            /// <param name="judgeInterval"></param>
+            public BrainDataForJob(ActStateBrainDictionary sourceDic, float judgeInterval, float moveJudgeInterval)
+            {
+                // 判断間隔を設定。
+                this.judgeInterval = judgeInterval;
+                this.moveJudgeInterval = moveJudgeInterval;
+
+                this.brainSetting = new NativeHashMap<int, BrainSettingForJob>(sourceDic.Count, allocator: Allocator.Persistent);
+
+                foreach ( KeyValuePair<ActState, BrainSetting> item in sourceDic )
+                {
+                    this.brainSetting.Add((int)item.Key, new BrainSettingForJob(item.Value, allocator: Allocator.Persistent));
+                }
+            }
+
+            /// <summary>
+            /// インターバルをまとめて返す。
+            /// </summary>
+            /// <returns></returns>
+            public float2 GetInterval()
+            {
+                return new float2(this.judgeInterval, this.moveJudgeInterval);
+            }
+
+            /// <summary>
+            /// 各キャラの設定として保持し続けるのでゲーム終了時に呼ぶ。
+            /// </summary>
+            public void Dispose()
+            {
+                foreach ( KVPair<int, BrainSettingForJob> item in this.brainSetting )
+                {
+                    item.Value.Dispose();
+                }
+
+                this.brainSetting.Dispose();
+            }
         }
 
         /// <summary>
@@ -714,42 +717,24 @@ namespace TestScript.SOATest
         /// ステータスのCharacterSOAStatusから移植する。
         /// 要改修
         /// </summary>
-        [Serializable]
         [StructLayout(LayoutKind.Sequential)]
-        public struct CharacterSOAStatusForJob : IDisposable
+        public struct BrainSettingForJob : IDisposable
         {
-            /// <summary>
-            /// AIの判断間隔
-            /// </summary>
-            [Header("判断間隔")]
-            public float judgeInterval;
 
             /// <summary>
             /// 行動条件データ
             /// </summary>
             [Header("行動条件データ")]
-            public NativeArray<BehaviorData> actCondition;
-
-            /// <summary>
-            /// 攻撃以外の行動条件データ.
-            /// 最初の要素ほど優先度高いので重点。
-            /// </summary>
-            [Header("ヘイト条件データ")]
-            public NativeArray<TargetJudgeData> hateCondition;
+            public NativeArray<BehaviorData> behaviorSetting;
 
             /// <summary>
             /// NativeArrayリソースを解放する
             /// </summary>
             public void Dispose()
             {
-                if ( this.actCondition.IsCreated )
+                if ( this.behaviorSetting.IsCreated )
                 {
-                    this.actCondition.Dispose();
-                }
-
-                if ( this.hateCondition.IsCreated )
-                {
-                    this.hateCondition.Dispose();
+                    this.behaviorSetting.Dispose();
                 }
             }
 
@@ -758,22 +743,35 @@ namespace TestScript.SOATest
             /// </summary>
             /// <param name="source">移植元のキャラクターブレインステータス</param>
             /// <param name="allocator">NativeArrayに使用するアロケータ</param>
-            public CharacterSOAStatusForJob(in CharacterSOAStatus source, Allocator allocator)
+            public BrainSettingForJob(in BrainSetting source, Allocator allocator)
             {
 
-                // 基本プロパティをコピー
-                this.judgeInterval = source.judgeInterval;
-
                 // 配列を新しく作成
-                this.actCondition = source.actCondition != null
-                    ? new NativeArray<BehaviorData>(source.actCondition, allocator)
+                this.behaviorSetting = source.judgeData != null
+                    ? new NativeArray<BehaviorData>(source.judgeData, allocator)
                     : new NativeArray<BehaviorData>(0, allocator);
-
-                this.hateCondition = source.hateCondition != null
-                    ? new NativeArray<TargetJudgeData>(source.hateCondition, allocator)
-                    : new NativeArray<TargetJudgeData>(0, allocator);
             }
 
+        }
+
+        /// <summary>
+        /// ヘイトの設定。（Jobシステム仕様）
+        /// ステータスから移植する。
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HateSettingForJob
+        {
+            /// <summary>
+            /// 攻撃以外の行動条件データ.
+            /// 最初の要素ほど優先度高いので重点。
+            /// </summary>
+            [Header("ヘイト条件データ")]
+            public NativeArray<TargetJudgeData> hateCondition;
+
+            public HateSettingForJob(TargetJudgeData[] hateSetting)
+            {
+                this.hateCondition = new NativeArray<TargetJudgeData>(hateSetting, Allocator.Persistent);
+            }
         }
 
         /// <summary>
@@ -810,6 +808,7 @@ namespace TestScript.SOATest
         /// <summary>
         /// 判断に使用するデータ。
         /// SoA OK
+        /// 12Byte
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
@@ -930,7 +929,7 @@ namespace TestScript.SOATest
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
-        public struct TargetFilter
+        public struct TargetFilter : IEquatable<TargetFilter>
         {
             /// <summary>
             /// 対象の陣営区分
@@ -1016,53 +1015,384 @@ namespace TestScript.SOATest
             /// <param name="feature"></param>
             /// <returns></returns>
             [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-            public byte IsPassFilter(in CharacterData charaData)
+            public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo)
             {
-                // 論理削除対象は常に無視。
-                if ( charaData.IsLogicalDelate() )
-                {
-                    return 0;
-                }
+                // すべての条件を2つのuint4にパック
+                uint4 masks1 = new(
+                    (uint)this.targetFeature,
+                    (uint)this.targetEffect,
+                    (uint)this.targetEvent,
+                    (uint)this.targetType
+                );
 
-                // andかorで特徴条件判定
-                // 当てはまらないなら帰る。
-                if ( this.isAndFeatureCheck == BitableBool.TRUE ? ((this.targetFeature != 0) && (this.targetFeature & charaData.solidData.feature) != this.targetFeature) :
-                                                      ((this.targetFeature != 0) && (this.targetFeature & charaData.solidData.feature) == 0) )
-                {
-                    return 0;
-                }
+                uint4 values1 = new(
+                    (uint)solidData.feature,
+                    (uint)stateInfo.nowEffect,
+                    (uint)stateInfo.brainEvent,
+                    (uint)stateInfo.belong
+                );
 
-                // 特殊効果判断
-                // 当てはまらないなら帰る。
-                if ( this.isAndEffectCheck == BitableBool.TRUE ? ((this.targetEffect != 0) && (this.targetEffect & charaData.stateInfo.nowEffect) != this.targetEffect) :
-                                          ((this.targetEffect != 0) && (this.targetEffect & charaData.stateInfo.nowEffect) == 0) )
-                {
-                    return 0;
-                }
+                uint4 masks2 = new(
+                    (uint)this.targetState,
+                    (uint)this.targetWeakPoint,
+                    (uint)this.targetUseElement,
+                    0u
+                );
 
-                // イベント判断
-                // 当てはまらないなら帰る。
-                if ( this.isAndEventCheck == BitableBool.TRUE ? ((this.targetEvent != 0) && (this.targetEvent & charaData.stateInfo.brainEvent) != this.targetEvent) :
-                                          ((this.targetEvent != 0) && (this.targetEvent & charaData.stateInfo.brainEvent) == 0) )
-                {
-                    return 0;
-                }
+                uint4 values2 = new(
+                    (uint)stateInfo.actState,
+                    (uint)solidData.weakPoint,
+                    (uint)solidData.attackElement,
+                    0u
+                );
 
-                // 残りの条件も判定。
-                if ( (this.targetType == 0 || ((this.targetType & charaData.stateInfo.belong) > 0)) && (this.targetState == 0 || ((this.targetState & charaData.stateInfo.actState) > 0))
-                    && (this.targetWeakPoint == 0 || ((this.targetWeakPoint & charaData.solidData.weakPoint) > 0)) && (this.targetUseElement == 0 || ((this.targetUseElement & charaData.solidData.attackElement) > 0)) )
-                {
-                    return 1;
-                }
+                // AND/OR判定タイプ（最初の3つだけAND/OR切り替え可能）
+                bool4 checkTypes1 = new(
+                    this.isAndFeatureCheck == BitableBool.TRUE,
+                    this.isAndEffectCheck == BitableBool.TRUE,
+                    this.isAndEventCheck == BitableBool.TRUE,
+                    false // targetTypeは常にOR判定
+                );
 
-                return 0;
+                // 2つ目のuint4は全てOR判定
+                bool4 checkTypes2 = new(false);
+
+                // SIMD演算
+                uint4 and1 = masks1 & values1;
+                uint4 and2 = masks2 & values2;
+
+                // 条件判定
+                bool4 pass1 = EvaluateConditions(masks1, and1, checkTypes1);
+                bool4 pass2 = EvaluateConditions(masks2, and2, checkTypes2);
+
+                // すべての条件がtrueかチェック
+                return (byte)(math.all(pass1 & pass2) ? 1 : 0);
             }
 
+            /// <summary>
+            /// 条件評価をSIMDで実行するヘルパーメソッド
+            /// </summary>
+            [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
+            private static bool4 EvaluateConditions(uint4 masks, uint4 andResults, bool4 isAndCheck)
+            {
+                bool4 zeroMasks = masks == 0u;
+                bool4 andConditions = andResults == masks;
+                bool4 orConditions = andResults > 0u;
+
+                // ビット演算で条件選択を実現
+                // isAndCheck が true の場合は andConditions、false の場合は orConditions
+                bool4 selectedConditions = (isAndCheck & andConditions) | (!isAndCheck & orConditions);
+
+                return zeroMasks | selectedConditions;
+            }
+
+            /// <summary>
+            /// 個別パラメータを受け取るコンストラクタ
+            /// </summary>
+            public TargetFilter(
+                BrainStatus.CharacterSide targetType,
+                BrainStatus.CharacterFeature targetFeature,
+                BrainStatus.BitableBool isAndFeatureCheck,
+                BrainStatus.SpecialEffect targetEffect,
+                BrainStatus.BitableBool isAndEffectCheck,
+                BrainStatus.ActState targetState,
+                CharacterController.AIManager.BrainEventFlagType targetEvent,
+                BrainStatus.BitableBool isAndEventCheck,
+                BrainStatus.Element targetWeakPoint,
+                BrainStatus.Element targetUseElement)
+            {
+                this.targetType = (CharacterSide)(int)targetType;
+                this.targetFeature = (CharacterFeature)(int)targetFeature;
+                this.isAndFeatureCheck = (BitableBool)(int)isAndFeatureCheck;
+                this.targetEffect = (SpecialEffect)(int)targetEffect;
+                this.isAndEffectCheck = (BitableBool)(int)isAndEffectCheck;
+                this.targetState = (ActState)(int)targetState;
+                this.targetEvent = (BrainEventFlagType)(int)targetEvent;
+                this.isAndEventCheck = (BitableBool)(int)isAndEventCheck;
+                this.targetWeakPoint = (Element)(int)targetWeakPoint;
+                this.targetUseElement = (Element)(int)targetUseElement;
+            }
+
+            #region デバッグ用
+
+            public CharacterSide GetTargetType()
+            {
+                return this.targetType;
+            }
+
+            public bool Equals(TargetFilter other)
+            {
+                return this.targetType == other.targetType &&
+                       this.targetFeature == other.targetFeature &&
+                       this.isAndFeatureCheck == other.isAndFeatureCheck &&
+                       this.targetEffect == other.targetEffect &&
+                       this.isAndEffectCheck == other.isAndEffectCheck &&
+                       this.targetState == other.targetState &&
+                       this.targetEvent == other.targetEvent &&
+                       this.isAndEventCheck == other.isAndEventCheck &&
+                       this.targetWeakPoint == other.targetWeakPoint &&
+                       this.targetUseElement == other.targetUseElement;
+            }
+
+            /// <summary>
+            /// デバッグ用のデコンストラクタ。
+            /// var (type, feature, isAndFeature, effect, isAndEffect, 
+            ///　state, eventType, isAndEvent, weakPoint, useElement) = filter;
+            /// </summary>
+            /// <param name="targetType"></param>
+            /// <param name="targetFeature"></param>
+            /// <param name="isAndFeatureCheck"></param>
+            /// <param name="targetEffect"></param>
+            /// <param name="isAndEffectCheck"></param>
+            /// <param name="targetState"></param>
+            /// <param name="targetEvent"></param>
+            /// <param name="isAndEventCheck"></param>
+            /// <param name="targetWeakPoint"></param>
+            /// <param name="targetUseElement"></param>
+            public void Deconstruct(
+    out CharacterSide targetType,
+    out CharacterFeature targetFeature,
+    out BitableBool isAndFeatureCheck,
+    out SpecialEffect targetEffect,
+    out BitableBool isAndEffectCheck,
+    out ActState targetState,
+    out BrainEventFlagType targetEvent,
+    out BitableBool isAndEventCheck,
+    out Element targetWeakPoint,
+    out Element targetUseElement)
+            {
+                targetType = this.targetType;
+                targetFeature = this.targetFeature;
+                isAndFeatureCheck = this.isAndFeatureCheck;
+                targetEffect = this.targetEffect;
+                isAndEffectCheck = this.isAndEffectCheck;
+                targetState = this.targetState;
+                targetEvent = this.targetEvent;
+                isAndEventCheck = this.isAndEventCheck;
+                targetWeakPoint = this.targetWeakPoint;
+                targetUseElement = this.targetUseElement;
+            }
+
+            /// <summary>
+            /// IsPassFilterのデバッグ用メソッド。失敗した条件の詳細を返す
+            /// </summary>
+            public string DebugIsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo)
+            {
+                System.Text.StringBuilder failedConditions = new();
+
+                // 1. 特徴条件判定
+                if ( this.targetFeature != 0 )
+                {
+                    bool featureFailed = false;
+                    string failureReason = "";
+
+                    if ( this.isAndFeatureCheck == BitableBool.TRUE )
+                    {
+                        // AND条件：全ての特徴が必要
+                        if ( (this.targetFeature & solidData.feature) != this.targetFeature )
+                        {
+                            featureFailed = true;
+                            CharacterFeature missingFeatures = this.targetFeature & ~solidData.feature;
+                            failureReason = $"AND条件失敗 - 必要な特徴が不足: {missingFeatures}";
+                        }
+                    }
+                    else
+                    {
+                        // OR条件：いずれかの特徴が必要
+                        if ( (this.targetFeature & solidData.feature) == 0 )
+                        {
+                            featureFailed = true;
+                            failureReason = "OR条件失敗 - 一致する特徴なし";
+                        }
+                    }
+
+                    if ( featureFailed )
+                    {
+                        _ = failedConditions.AppendLine($"[特徴条件で失敗]");
+                        _ = failedConditions.AppendLine($"  フィールド: targetFeature");
+                        _ = failedConditions.AppendLine($"  期待値: {this.targetFeature} (0x{this.targetFeature:X})");
+                        _ = failedConditions.AppendLine($"  実際の値: {solidData.feature} (0x{solidData.feature:X})");
+                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndFeatureCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  理由: {failureReason}");
+                        _ = failedConditions.AppendLine();
+                        return failedConditions.ToString();
+                    }
+                }
+
+                // 2. 特殊効果判断
+                if ( this.targetEffect != 0 )
+                {
+                    bool effectFailed = false;
+                    string failureReason = "";
+
+                    if ( this.isAndEffectCheck == BitableBool.TRUE )
+                    {
+                        // AND条件：全ての効果が必要
+                        if ( (this.targetEffect & stateInfo.nowEffect) != this.targetEffect )
+                        {
+                            effectFailed = true;
+                            SpecialEffect missingEffects = this.targetEffect & ~stateInfo.nowEffect;
+                            failureReason = $"AND条件失敗 - 必要な効果が不足: {missingEffects}";
+                        }
+                    }
+                    else
+                    {
+                        // OR条件：いずれかの効果が必要
+                        if ( (this.targetEffect & stateInfo.nowEffect) == 0 )
+                        {
+                            effectFailed = true;
+                            failureReason = "OR条件失敗 - 一致する効果なし";
+                        }
+                    }
+
+                    if ( effectFailed )
+                    {
+                        _ = failedConditions.AppendLine($"[特殊効果条件で失敗]");
+                        _ = failedConditions.AppendLine($"  フィールド: targetEffect");
+                        _ = failedConditions.AppendLine($"  期待値: {this.targetEffect} (0x{this.targetEffect:X})");
+                        _ = failedConditions.AppendLine($"  実際の値: {stateInfo.nowEffect} (0x{stateInfo.nowEffect:X})");
+                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndEffectCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  理由: {failureReason}");
+                        _ = failedConditions.AppendLine();
+                        return failedConditions.ToString();
+                    }
+                }
+
+                // 3. イベント判断
+                if ( this.targetEvent != 0 )
+                {
+                    bool eventFailed = false;
+                    string failureReason = "";
+
+                    if ( this.isAndEventCheck == BitableBool.TRUE )
+                    {
+                        // AND条件：全てのイベントが必要
+                        if ( (this.targetEvent & stateInfo.brainEvent) != this.targetEvent )
+                        {
+                            eventFailed = true;
+                            BrainEventFlagType missingEvents = this.targetEvent & ~stateInfo.brainEvent;
+                            failureReason = $"AND条件失敗 - 必要なイベントが不足: {missingEvents}";
+                        }
+                    }
+                    else
+                    {
+                        // OR条件：いずれかのイベントが必要
+                        if ( (this.targetEvent & stateInfo.brainEvent) == 0 )
+                        {
+                            eventFailed = true;
+                            failureReason = "OR条件失敗 - 一致するイベントなし";
+                        }
+                    }
+
+                    if ( eventFailed )
+                    {
+                        _ = failedConditions.AppendLine($"[イベント条件で失敗]");
+                        _ = failedConditions.AppendLine($"  フィールド: targetEvent");
+                        _ = failedConditions.AppendLine($"  期待値: {this.targetEvent} (0x{this.targetEvent:X})");
+                        _ = failedConditions.AppendLine($"  実際の値: {stateInfo.brainEvent} (0x{stateInfo.brainEvent:X})");
+                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndEventCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  理由: {failureReason}");
+                        _ = failedConditions.AppendLine();
+                        return failedConditions.ToString();
+                    }
+                }
+
+                // 4. 残りの条件（個別チェック）
+                List<string> remainingFailures = new();
+
+                // 陣営チェック
+                if ( this.targetType != 0 && (this.targetType & stateInfo.belong) == 0 )
+                {
+                    remainingFailures.Add($"  - targetType: 期待値={this.targetType} (0x{this.targetType:X}), 実際の値={stateInfo.belong} (0x{stateInfo.belong:X})");
+                }
+
+                // 状態チェック
+                if ( this.targetState != 0 && (this.targetState & stateInfo.actState) == 0 )
+                {
+                    remainingFailures.Add($"  - targetState: 期待値={this.targetState} (0x{this.targetState:X}), 実際の値={stateInfo.actState} (0x{stateInfo.actState:X})");
+                }
+
+                // 弱点チェック
+                if ( this.targetWeakPoint != 0 && (this.targetWeakPoint & solidData.weakPoint) == 0 )
+                {
+                    remainingFailures.Add($"  - targetWeakPoint: 期待値={this.targetWeakPoint} (0x{this.targetWeakPoint:X}), 実際の値={solidData.weakPoint} (0x{solidData.weakPoint:X})");
+                }
+
+                // 使用属性チェック
+                if ( this.targetUseElement != 0 && (this.targetUseElement & solidData.attackElement) == 0 )
+                {
+                    remainingFailures.Add($"  - targetUseElement: 期待値={this.targetUseElement} (0x{this.targetUseElement:X}), 実際の値={solidData.attackElement} (0x{solidData.attackElement:X})");
+                }
+
+                if ( remainingFailures.Count > 0 )
+                {
+                    _ = failedConditions.AppendLine($"[その他の条件で失敗]");
+                    foreach ( string failure in remainingFailures )
+                    {
+                        _ = failedConditions.AppendLine(failure);
+                    }
+
+                    return failedConditions.ToString();
+                }
+
+                // 全条件パスした場合
+                return "全ての条件をパスしました";
+            }
+
+            /// <summary>
+            /// より詳細なビット解析を含むバージョン
+            /// </summary>
+            /// <param name="solidData"></param>
+            /// <param name="stateInfo"></param>
+            /// <returns></returns>
+            public string DebugIsPassFilterDetailed(in SolidData solidData, in CharacterStateInfo stateInfo)
+            {
+                string result = this.DebugIsPassFilter(solidData, stateInfo);
+
+                if ( result != "全ての条件をパスしました" )
+                {
+                    System.Text.StringBuilder details = new();
+                    _ = details.AppendLine("=== 詳細なビット解析 ===");
+
+                    // ビットフラグの詳細を表示する補助メソッド
+                    void AppendBitDetails<T>(string name, T expected, T actual) where T : System.Enum
+                    {
+                        _ = details.AppendLine($"\n{name}:");
+                        _ = details.AppendLine($"  期待されるフラグ: {System.Enum.GetName(typeof(T), expected)} = {expected}");
+                        _ = details.AppendLine($"  実際のフラグ: {System.Enum.GetName(typeof(T), actual)} = {actual}");
+
+                        // 各ビットの状態を表示
+                        int expectedInt = System.Convert.ToInt32(expected);
+                        int actualInt = System.Convert.ToInt32(actual);
+
+                        for ( int i = 0; i < 32; i++ )
+                        {
+                            int bitMask = 1 << i;
+                            if ( (expectedInt & bitMask) != 0 )
+                            {
+                                bool hasbit = (actualInt & bitMask) != 0;
+                                _ = details.AppendLine($"    ビット{i}: {(hasbit ? "○" : "×")}");
+                            }
+                        }
+                    }
+
+                    // 必要に応じて各フィールドの詳細を追加
+                    if ( result.Contains("targetFeature") )
+                    {
+                        AppendBitDetails("CharacterFeature", this.targetFeature, solidData.feature);
+                    }
+
+                    result += "\n" + details.ToString();
+                }
+
+                return result;
+            }
+            #endregion
         }
 
         #endregion 判断関連
 
-        #region キャラクター基幹データ
+        #region キャラクター基幹データ（非Job）
 
         /// <summary>
         /// 送信するデータ、不変の物
@@ -1076,11 +1406,6 @@ namespace TestScript.SOATest
         [StructLayout(LayoutKind.Auto)]
         public struct CharacterBaseData
         {
-            /// <summary>
-            /// キャラのID
-            /// </summary>
-            public int characterID;
-
             /// <summary>
             /// 最大HP
             /// </summary>
@@ -1118,73 +1443,8 @@ namespace TestScript.SOATest
         }
 
         /// <summary>
-        /// 常に変わらないデータを格納する構造体。
-        /// BaseDataとの違いは、初期化以降頻繁に参照する必要があるか。
-        /// SoA OK
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct SolidData
-        {
-
-            /// <summary>
-            /// 外部表示用の攻撃力。
-            /// </summary>
-            [Header("表示用攻撃力")]
-            public int displayAtk;
-
-            /// <summary>
-            /// 外部表示用の防御力。
-            /// </summary>
-            [Header("表示用防御力")]
-            public int displayDef;
-
-            /// <summary>
-            /// 攻撃属性を示す列挙型
-            /// ビット演算で見る
-            /// NPCだけ入れる
-            /// なに属性の攻撃をしてくるかというところ
-            /// </summary>
-            [Header("攻撃属性")]
-            public Element attackElement;
-
-            /// <summary>
-            /// 弱点属性を示す列挙型
-            /// ビット演算で見る
-            /// NPCだけ入れる
-            /// </summary>
-            [Header("弱点属性")]
-            public Element weakPoint;
-
-            /// <summary>
-            /// キャラの属性というか
-            /// 特徴を示す。種類も包括
-            /// </summary>
-            [Header("キャラクター特徴")]
-            public CharacterFeature feature;
-
-            /// <summary>
-            /// キャラの階級。<br/>
-            /// これが上なほど味方の中で同じ敵をターゲットにしててもお控えしなくて済む、優先的に殴れる。<br/>
-            /// あとランク低い味方に命令飛ばしたりできる。
-            /// </summary>
-            [Header("チーム内での階級")]
-            public CharacterRank rank;
-
-            /// <summary>
-            /// この数値以上の敵から狙われている相手がターゲットになった場合、一旦次の判断までは待機になる
-            /// その次の判断でやっぱり一番ヘイト高ければ狙う。(狙われまくってる相手へのヘイトは下がるので、普通はその次の判断でべつのやつが狙われる)
-            /// 様子伺う、みたいなステート入れるか専用で
-            /// 一定以上に狙われてる相手かつ、様子伺ってるキャラの場合だけヘイト下げるようにしよう。
-            /// </summary>
-            [Header("ターゲット上限")]
-            [Tooltip("この数値以上の敵から狙われている相手が攻撃対象になった場合、一旦次の判断までは待機になる")]
-            public int targetingLimit;
-        }
-
-
-        /// <summary>
         /// 攻撃モーションのステータス。
+        /// これはダメージ計算用のデータだから、攻撃時移動やエフェクトのデータは他に持つ。
         /// これはステータスのScriptableに持たせておくのでエフェクトデータとかの参照型も入れていい。
         /// 前回使用した時間、とかを記録するために、キャラクター側に別途リンクした管理情報が必要。
         /// あとJobシステムで使用しない構造体はなるべくメモリレイアウトを最適化する。ネイティブコードとの連携を気にしなくていいから。
@@ -1200,11 +1460,12 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("攻撃倍率（モーション値）")]
             public float motionValue;
+
         }
 
         #endregion
 
-        #endregion 固定データ
+        #endregion SoA対象外
 
         #region シリアライズ可能なディクショナリの定義
 
@@ -1212,13 +1473,30 @@ namespace TestScript.SOATest
         /// ActStateがキーでCharacterSOAStatusが値のディクショナリ
         /// </summary>
         [Serializable]
-        public class ActStateBrainDictionary : SerializableDictionary<ActState, CharacterSOAStatus>
+        public class ActStateBrainDictionary : SerializableDictionary<ActState, BrainSetting>
         {
         }
 
         #endregion
 
-        // ここから下で各データを設定して、コンテナに1要素ずつ入れていく
+        // ここから下で各データを設定。キャラの種類ごとのステータス。
+
+        /// <summary>
+        /// キャラのID
+        /// </summary>
+        public int characterID;
+
+        /// <summary>
+        /// AIの判断間隔
+        /// </summary>
+        [Header("判断間隔")]
+        public float judgeInterval;
+
+        /// <summary>
+        /// AIの移動判断間隔
+        /// </summary>
+        [Header("移動判断間隔")]
+        public float moveJudgeInterval;
 
         /// <summary>
         /// キャラのベース、固定部分のデータ。
@@ -1232,6 +1510,13 @@ namespace TestScript.SOATest
         /// </summary>
         [Header("固定データ")]
         public SolidData solidData;
+
+        /// <summary>
+        /// 攻撃以外の行動条件データ.
+        /// 最初の要素ほど優先度高いので重点。
+        /// </summary>
+        [Header("ヘイト条件データ")]
+        public TargetJudgeData[] hateCondition;
 
         /// <summary>
         /// キャラのAIの設定。
@@ -1255,10 +1540,85 @@ namespace TestScript.SOATest
         public AttackData[] attackData;
 
         /// <summary>
-        /// AIの移動判断間隔
+        /// 旧ステータスのデータをコピーする。
+        /// エディターで動かせる関数を用意しよう。
         /// </summary>
-        [Header("移動判断間隔")]
-        public float moveJudgeInterval;
+        public BrainStatus source;
+
+        [ContextMenu("テストデータ複製")]
+        public void TestDataCopy()
+        {
+            this.baseData.hp = this.source.baseData.hp;
+            this.baseData.mp = this.source.baseData.mp;
+
+            this.baseData.baseAtk.slash = this.source.baseData.baseAtk.slash;
+            this.baseData.baseAtk.pierce = this.source.baseData.baseAtk.pierce;
+            this.baseData.baseAtk.strike = this.source.baseData.baseAtk.strike;
+            this.baseData.baseAtk.fire = this.source.baseData.baseAtk.fire;
+            this.baseData.baseAtk.lightning = this.source.baseData.baseAtk.lightning;
+            this.baseData.baseAtk.light = this.source.baseData.baseAtk.light;
+            this.baseData.baseAtk.dark = this.source.baseData.baseAtk.dark;
+
+            this.baseData.baseDef.slash = this.source.baseData.baseDef.slash;
+            this.baseData.baseDef.pierce = this.source.baseData.baseDef.pierce;
+            this.baseData.baseDef.strike = this.source.baseData.baseDef.strike;
+            this.baseData.baseDef.fire = this.source.baseData.baseDef.fire;
+            this.baseData.baseDef.lightning = this.source.baseData.baseDef.lightning;
+            this.baseData.baseDef.light = this.source.baseData.baseDef.light;
+            this.baseData.baseDef.dark = this.source.baseData.baseDef.dark;
+
+            this.baseData.initialBelong = (CharacterSide)(int)this.source.baseData.initialBelong;
+            this.baseData.initialMove = (ActState)(int)this.source.baseData.initialMove;
+
+            this.solidData.attackElement = (Element)(int)this.source.solidData.attackElement;
+            this.solidData.weakPoint = (Element)(int)this.source.solidData.weakPoint;
+            this.solidData.feature = (CharacterFeature)(int)this.source.solidData.feature;
+            this.solidData.rank = (CharacterRank)(int)this.source.solidData.rank;
+            this.solidData.targetingLimit = this.source.solidData.targetingLimit;
+
+            foreach ( KeyValuePair<BrainStatus.ActState, CharacterBrainStatus> item in this.source.brainData )
+            {
+                BrainSetting setting = new();
+
+                setting.judgeData = new BehaviorData[item.Value.actCondition.Length];
+                for ( int i = 0; i < setting.judgeData.Length; i++ )
+                {
+                    setting.judgeData[i].actCondition.judgeValue = item.Value.actCondition[i].actCondition.judgeValue;
+                    setting.judgeData[i].actCondition.judgeCondition = (ActJudgeCondition)(int)item.Value.actCondition[i].actCondition.judgeCondition;
+                    setting.judgeData[i].actCondition.stateChange = (ActState)(int)item.Value.actCondition[i].actCondition.stateChange;
+                    setting.judgeData[i].actCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].actCondition.isInvert;
+
+                    (BrainStatus.CharacterSide targetType, BrainStatus.CharacterFeature targetFeature, BrainStatus.BitableBool isAndFeatureCheck, BrainStatus.SpecialEffect targetEffect, BrainStatus.BitableBool isAndEffectCheck,
+     BrainStatus.ActState targetState, BrainEventFlagType targetEvent, BrainStatus.BitableBool isAndEventCheck, BrainStatus.Element targetWeakPoint, BrainStatus.Element targetUseElement) = item.Value.actCondition[i].actCondition.filter;
+                    setting.judgeData[i].actCondition.filter = new TargetFilter(targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
+     targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement);
+
+                    setting.judgeData[i].skipData.skipCondition = (SkipJudgeCondition)(int)item.Value.actCondition[i].skipData.skipCondition;
+                    setting.judgeData[i].skipData.judgeValue = item.Value.actCondition[i].skipData.judgeValue;
+                    setting.judgeData[i].skipData.isInvert = (BitableBool)(int)item.Value.actCondition[i].skipData.isInvert;
+
+                    setting.judgeData[i].targetCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].targetCondition.isInvert;
+
+                    setting.judgeData[i].targetCondition.judgeCondition = (TargetSelectCondition)(int)item.Value.actCondition[i].targetCondition.judgeCondition;
+                    setting.judgeData[i].targetCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].targetCondition.isInvert;
+                    setting.judgeData[i].targetCondition.useAttackOrHateNum = item.Value.actCondition[i].targetCondition.useAttackOrHateNum;
+
+                    (targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
+     targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement) = item.Value.actCondition[i].targetCondition.filter;
+                    setting.judgeData[i].targetCondition.filter = new TargetFilter(targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
+ targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement);
+
+                }
+
+                this.brainData.Add((ActState)(int)item.Key, setting);
+            }
+
+            this.moveStatus.moveSpeed = this.source.moveStatus.moveSpeed;
+            this.moveStatus.walkSpeed = this.source.moveStatus.walkSpeed;
+            this.moveStatus.dashSpeed = this.source.moveStatus.dashSpeed;
+            this.moveStatus.jumpHeight = this.source.moveStatus.jumpHeight;
+
+        }
 
     }
 }

@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Net.NetworkInformation;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -30,7 +28,7 @@ public abstract class SerializableDictionary<TKey, TValue> : Dictionary<TKey, TV
         this.keyData.Clear();
         this.valueData.Clear();
 
-        foreach ( var item in this )
+        foreach ( KeyValuePair<TKey, TValue> item in this )
         {
             this.keyData.Add(item.Key);
             this.valueData.Add(item.Value);
