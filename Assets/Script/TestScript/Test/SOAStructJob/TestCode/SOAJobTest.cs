@@ -203,19 +203,12 @@ public class SOAJobTest
     {
         for ( int i = 0; i < this._relationMap.Length; i++ )
         {
-            switch ( (CharacterSide)i )
+            this._relationMap[i] = (CharacterSide)i switch
             {
-                case CharacterSide.プレイヤー:
-                    this._relationMap[i] = 1 << (int)CharacterSide.魔物;
-                    break;
-                case CharacterSide.魔物:
-                    this._relationMap[i] = 1 << (int)CharacterSide.プレイヤー;
-                    break;
-                case CharacterSide.その他:
-                default:
-                    this._relationMap[i] = 0;
-                    break;
-            }
+                CharacterSide.プレイヤー => 1 << (int)CharacterSide.魔物,
+                CharacterSide.魔物 => 1 << (int)CharacterSide.プレイヤー,
+                _ => 0,
+            };
         }
     }
 

@@ -25,6 +25,77 @@ dotnet_property_generation_behavior = prefer_throwing_properties
 # シンボルの検索
 dotnet_search_reference_assemblies = true
 
+######################### Unity Performance Rules #########################
+
+### Unity Analyzers ###
+# UNT0001: 空の Unity メソッド (Start, Update等を削除)
+dotnet_diagnostic.UNT0001.severity = error
+
+# UNT0002: 非効率なタグ比較 (CompareTag()を使用)
+dotnet_diagnostic.UNT0002.severity = error
+
+# UNT0006: 不正な MonoBehaviour インスタンス化
+dotnet_diagnostic.UNT0006.severity = error
+
+# UNT0007: Unity オブジェクトでの null 結合演算子 (??)
+dotnet_diagnostic.UNT0007.severity = error
+
+# UNT0008: Unity オブジェクトでの null 伝播演算子 (?.)
+dotnet_diagnostic.UNT0008.severity = error
+
+# UNT0010: Component.gameObject.GetComponent の非効率な使用
+dotnet_diagnostic.UNT0010.severity = error
+
+# UNT0017: SetPixels の低速な呼び出し (SetPixels32を推奨)
+dotnet_diagnostic.UNT0017.severity = error
+
+### メモリ・GC最適化ルール ###
+# CA1825: 長さゼロの配列にはArray.Empty<T>()を使用
+dotnet_diagnostic.CA1825.severity = error
+
+# CA1826: インデクサーが使える場合は使用 (First()→[0])
+dotnet_diagnostic.CA1826.severity = error
+
+# CA1827: Count() > 0 の代わりに Any() を使用
+dotnet_diagnostic.CA1827.severity = error
+
+# CA1829: Count()の代わりにLength/Countプロパティを使用
+dotnet_diagnostic.CA1829.severity = error
+
+######################### その他のUnity推奨設定 #########################
+
+# Unity固有の警告を抑制
+dotnet_diagnostic.IDE0051.severity = none  # Unity メソッドの未使用警告を無効化
+dotnet_diagnostic.IDE0052.severity = none  # SerializeField の未読警告を無効化
+dotnet_diagnostic.CS0649.severity = none   # Unity シリアライズフィールドの警告を無効化
+
+# UNT0003: Unity メッセージは正確な署名が必要
+dotnet_diagnostic.UNT0003.severity = error
+
+# UNT0004: Time.fixedDeltaTime の FixedUpdate 内での使用
+dotnet_diagnostic.UNT0004.severity = warning
+
+# UNT0009: InitializeOnLoad の不適切な使用
+dotnet_diagnostic.UNT0009.severity = warning
+
+# UNT0011: ScriptableObject へのデフォルトコンストラクタ
+dotnet_diagnostic.UNT0011.severity = error
+
+# UNT0012: StartCoroutine の不適切な使用
+dotnet_diagnostic.UNT0012.severity = warning
+
+# UNT0013: 無効な SerializeReference 属性
+dotnet_diagnostic.UNT0013.severity = error
+
+# UNT0014: GetComponent の無効な型引数
+dotnet_diagnostic.UNT0014.severity = error
+
+# UNT0015: InitializeOnLoadMethod の不適切な署名
+dotnet_diagnostic.UNT0015.severity = error
+
+# UNT0016: Invoke の危険な使用方法
+dotnet_diagnostic.UNT0016.severity = warning
+
 #### .NET コーディング規則 ####
 
 # using の整理
@@ -246,6 +317,17 @@ dotnet_naming_style.begins_with_i.capitalization = pascal_case
 dotnet_diagnostic.UNT0004.severity = warning
 dotnet_diagnostic.UNT0005.severity = warning
 
+# プライベートフィールドはアンダースコア付きcamelCase
+dotnet_naming_rule.private_fields_should_be_camel_case_with_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case_with_underscore.style = camel_case_with_underscore
+dotnet_naming_rule.private_fields_should_be_camel_case_with_underscore.severity = error
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_style.camel_case_with_underscore.capitalization = camel_case
+dotnet_naming_style.camel_case_with_underscore.required_prefix = _
+
 [*.{cs,vb}]
 tab_width = 4
 indent_size = 4
@@ -282,3 +364,10 @@ dotnet_style_allow_multiple_blank_lines_experimental = false:silent
 dotnet_style_allow_statement_immediately_after_block_experimental = false:silent
 dotnet_style_predefined_type_for_locals_parameters_members = true:silent
 dotnet_style_predefined_type_for_member_access = true:silent
+
+# 生成コードの除外
+[Assets/TextMeshPro/**.cs]
+generated_code = true
+
+[Packages/**.cs]
+generated_code = true
