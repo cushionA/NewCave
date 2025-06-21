@@ -1,0 +1,286 @@
+name: Unity Code Quality & Auto-Format
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.cs'
+      - '**.asmdef'
+      - '.editorconfig'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.cs'
+
+permissions:
+  contents: write      # コミットプッシュ用
+  pull-requests: write # PR コメント用
+  checks: write       # チェック結果の書き込み
+
+jobs:
+  code-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 1. リポジトリのチェックアウト（トークン付き）
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+        
+    # 2. 変更されたファイルの検出
+    - name: Get Changed Files
+      id: changed-files
+      uses: tj-actions/changed-files@v35
+      with:
+        files: |
+          **/*.cs
+        separator: ","
+        
+    # 3. .NET環境のセットアップ
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '6.0.x'
+        
+    # 4. dotnet-format ツールのインストール
+    - name: Install dotnet-format
+      run: |
+        dotnet tool install -g dotnet-format
+        echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+        
+    # 5. Unity用の一時的なプロジェクトファイル作成
+    - name: Create Temporary Project Structure
+      run: |
+        # ソリューションファイルの作成
+        cat > UnityProject.sln << EOF
+        Microsoft Visual Studio Solution File, Format Version 12.00
+        Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Assembly-CSharp", "Assembly-CSharp.csproj", "{12345678-1234-1234-1234-123456789012}"
+        EndProject
+        Global
+          GlobalSection(SolutionConfigurationPlatforms) = preSolution
+            Debug|Any CPU = Debug|Any CPU
+            Release|Any CPU = Release|Any CPU
+          EndGlobalSection
+        EndGlobal
+        EOF
+        
+        # プロジェクトファイルの作成
+        cat > Assembly-CSharp.csproj << EOF
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <TargetFramework>netstandard2.1</TargetFramework>
+            <LangVersion>9.0</LangVersion>
+            <Nullable>enable</Nullable>
+            <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+          </PropertyGroup>
+          <ItemGroup>
+            <Compile Include="Assets/**/*.cs" />
+            <PackageReference Include="Microsoft.Unity.Analyzers" Version="1.18.0" />
+          </ItemGroup>
+        </Project>
+        EOF
+        
+    # 6. コード分析の実行
+    - name: Run Code Analysis
+      id: analysis
+      continue-on-error: true
+      run: |
+        echo "## 🔍 コード分析結果" >> $GITHUB_STEP_SUMMARY
+        
+        # ビルドと分析
+        dotnet build --no-restore \
+          --configuration Release \
+          /p:TreatWarningsAsErrors=false \
+          /p:EnforceCodeStyleInBuild=true \
+          --verbosity minimal 2>&1 | tee analysis.log
+        
+        # 結果をサマリーに追加
+        if [ $? -eq 0 ]; then
+          echo "✅ コード分析: 成功" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ コード分析: 警告あり" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "warning|error" analysis.log | head -20 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+        
+    # 7. コードクリーンアップの実行
+    - name: Auto-Format Changed Files
+      id: format
+      if: steps.changed-files.outputs.any_changed == 'true'
+      run: |
+        echo "## 🧹 コードクリーンアップ" >> $GITHUB_STEP_SUMMARY
+        echo "対象ファイル数: ${{ steps.changed-files.outputs.all_changed_files_count }}" >> $GITHUB_STEP_SUMMARY
+        
+        # フォーマット前の状態を保存
+        git diff --name-only > before_format.txt
+        
+        # 変更されたファイルのみフォーマット
+        IFS=',' read -ra FILES <<< "${{ steps.changed-files.outputs.all_changed_files }}"
+        for file in "${FILES[@]}"; do
+          if [ -f "$file" ]; then
+            echo "Formatting: $file"
+            dotnet format whitespace "$file" --folder
+            dotnet format style "$file" --severity info --folder
+            dotnet format analyzers "$file" --severity info --folder
+          fi
+        done
+        
+        # フォーマット後の変更を確認
+        git diff --name-only > after_format.txt
+        
+        # 変更があったかチェック
+        if [ -s after_format.txt ]; then
+          echo "formatted=true" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📝 フォーマットされたファイル:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat after_format.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        else
+          echo "formatted=false" >> $GITHUB_OUTPUT
+          echo "✨ すべてのファイルが既に適切にフォーマットされています" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+    # 8. 未使用のusingステートメントの削除
+    - name: Remove Unused Usings
+      if: steps.changed-files.outputs.any_changed == 'true'
+      run: |
+        echo "## 🗑️ 未使用コードの削除" >> $GITHUB_STEP_SUMMARY
+        
+        # IDE0005: 未使用のusingディレクティブを削除
+        dotnet format analyzers --diagnostics IDE0005 --severity info
+        
+        # その他のクリーンアップ
+        dotnet format analyzers --diagnostics IDE0001,IDE0002,IDE0004 --severity info
+        
+    # 9. Unity特有のクリーンアップ
+    - name: Unity-Specific Cleanup
+      if: steps.changed-files.outputs.any_changed == 'true'
+      run: |
+        # カスタムスクリプトでUnity特有の修正
+        cat > unity_cleanup.py << 'EOF'
+        import re
+        import sys
+        
+        def cleanup_unity_file(filepath):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            original = content
+            
+            # SerializeFieldの整形
+            content = re.sub(
+                r'\[SerializeField\]\s*private\s+',
+                '[SerializeField] private ',
+                content
+            )
+            
+            # 空のUnityメソッドにTODOコメントを追加
+            content = re.sub(
+                r'(void\s+(?:Start|Awake|Update|FixedUpdate|LateUpdate)\s*\(\s*\)\s*{\s*})',
+                r'\1  // TODO: Implementation needed or remove this method',
+                content
+            )
+            
+            if content != original:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                return True
+            return False
+        
+        if __name__ == "__main__":
+            for file in sys.argv[1:]:
+                if cleanup_unity_file(file):
+                    print(f"Cleaned up: {file}")
+        EOF
+        
+        # Pythonスクリプトの実行
+        IFS=',' read -ra FILES <<< "${{ steps.changed-files.outputs.all_changed_files }}"
+        python unity_cleanup.py "${FILES[@]}"
+        
+    # 10. 変更のコミット（pushの場合）
+    - name: Commit Formatted Code
+      if: |
+        github.event_name == 'push' && 
+        steps.format.outputs.formatted == 'true' &&
+        github.ref != 'refs/heads/main'  # mainブランチへの直接pushは避ける
+      run: |
+        # Gitの設定
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        # 変更をステージング
+        git add -A
+        
+        # コミット
+        git commit -m "🎨 Auto-format code [skip ci]" \
+          -m "Formatted by GitHub Actions workflow" \
+          -m "Files formatted: $(git diff --cached --name-only | wc -l)"
+        
+        # プッシュ
+        git push
+        
+    # 11. PRの場合の処理
+    - name: Create Format Suggestions for PR
+      if: |
+        github.event_name == 'pull_request' && 
+        steps.format.outputs.formatted == 'true'
+      uses: reviewdog/action-suggester@v1
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        tool_name: dotnet-format
+        fail_on_error: false
+        
+    # 12. 詳細レポートの生成
+    - name: Generate Detailed Report
+      if: always()
+      run: |
+        mkdir -p reports
+        
+        # フォーマットレポート
+        if [ -f after_format.txt ]; then
+          echo "# Code Formatting Report" > reports/format-report.md
+          echo "## Changed Files" >> reports/format-report.md
+          echo '```' >> reports/format-report.md
+          cat after_format.txt >> reports/format-report.md
+          echo '```' >> reports/format-report.md
+          
+          # 差分の詳細
+          echo "## Detailed Changes" >> reports/format-report.md
+          git diff --cached > reports/format-changes.diff
+        fi
+        
+        # 分析レポート
+        if [ -f analysis.log ]; then
+          cp analysis.log reports/
+        fi
+        
+    # 13. アーティファクトのアップロード
+    - name: Upload Reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: code-quality-reports
+        path: reports/
+        retention-days: 7
+        
+    # 14. PRステータスの更新
+    - name: Update PR Status
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const formatted = '${{ steps.format.outputs.formatted }}' === 'true';
+          const message = formatted 
+            ? '🎨 コードが自動フォーマットされました。変更を確認してください。' 
+            : '✅ コードは既に適切にフォーマットされています。';
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: message
+          });
