@@ -1,28 +1,4 @@
-using CharacterController;
-using NUnit.Framework;
-using SplitJob;
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using TestScript;
-using TestScript.Collections;
-using TestScript.SOATest;
-using Unity.Burst;
-using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
-using Unity.Jobs;
-using Unity.Jobs.LowLevel.Unsafe;
-using Unity.Mathematics;
-using Unity.PerformanceTesting;
-using UnityEngine;
-using UnityEngine.AddressableAssets;
-using UnityEngine.Profiling;
-using UnityEngine.ResourceManagement.AsyncOperations;
-using UnityEngine.ResourceManagement.ResourceLocations;
-using UnityEngine.TestTools;
-using static CharacterController.BaseController;
-using static CharacterController.BrainStatus;
-
+/*
 // アセンブリレベル設定
 [assembly: BurstCompile(OptimizeFor = OptimizeFor.Performance)]
 /// <summary>
@@ -832,3 +808,5 @@ public class SOAJobTest
         Assert.IsTrue(this._aiInstancesInitialized, "AIインスタンスの再初期化に失敗しました");
     }
 }
+
+*/

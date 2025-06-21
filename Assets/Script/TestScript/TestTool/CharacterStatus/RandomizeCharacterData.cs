@@ -1,7 +1,6 @@
-using System;
-using Unity.Collections.LowLevel.Unsafe;
-using UnityEngine;
-using static CharacterController.BrainStatus;
+// 20250621 テスト終了により不要
+
+/*
 
 /// <summary>
 /// CharacterDataのステータスをランダム化するユーティリティクラス
@@ -29,13 +28,13 @@ public static class CharacterDataRandomizer
         for ( int i = 0; i < characterList.Length; i++ )
         {
             // UnsafeListから要素を取得
-            CharacterData data = characterList[i];
+            //  CharacterData data = characterList[i];
 
-            // 個別のCharacterDataをランダム化するメソッドを呼び出す
-            RandomizeCharacterData(ref data, characterList);
+            //// 個別のCharacterDataをランダム化するメソッドを呼び出す
+            //RandomizeCharacterData(ref data, characterList);
 
-            // UnsafeListに値を戻す
-            characterList[i] = data;
+            //// UnsafeListに値を戻す
+            //characterList[i] = data;
         }
     }
 
@@ -108,3 +107,5 @@ public static class CharacterDataRandomizer
         }
     }
 }
+
+*/

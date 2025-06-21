@@ -1,7 +1,8 @@
+using CharacterController.StatusData;
 using System;
 using System.Runtime.InteropServices;
 using UnityEngine;
-using static CharacterController.BrainStatus;
+using static CharacterController.StatusData.BrainStatus;
 
 namespace CharacterController
 {
@@ -127,7 +128,7 @@ namespace CharacterController
         /// 移動に使用する物理コンポーネント。
         /// </summary>
         [SerializeField]
-        private Rigidbody2D rb;
+        private Rigidbody2D _rb;
 
         /// <summary>
         /// 何回判断したかを数える。<br></br>
@@ -151,7 +152,7 @@ namespace CharacterController
             // いや、やっぱり材料送って向こうで作ってもらおう。
             // NativeContainer含む構造体をコピーするのなんかこわい。
             // ただもしコピーしても、こっちで作った分はローカル変数でしかないからDispose()周りの問題はないはず。
-            AIManager.instance.CharacterAdd(this.status, this.gameObject);
+            AIManager.instance.CharacterAdd(this.status, this);
         }
 
         /// <summary>
@@ -199,17 +200,6 @@ namespace CharacterController
 
             }
 
-        }
-
-        /// <summary>
-        /// テストデータ作成用のメソッド。
-        /// ユニットテストでコンポーネントからキャラクターデータを作るために必要。
-        /// 実際のゲームでは使わない。
-        /// </summary>
-        /// <returns></returns>
-        public (BrainStatus, GameObject) MakeTestData()
-        {
-            return (this.status, this.gameObject);
         }
 
     }

@@ -1,4 +1,4 @@
-using CharacterController;
+using CharacterController.StatusData;
 using Sirenix.OdinInspector;
 using System;
 using System.Collections.Generic;
@@ -8,7 +8,6 @@ using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 using static CharacterController.AIManager;
-using static CharacterController.BrainStatus;
 
 namespace TestScript.SOATest
 {
@@ -924,7 +923,7 @@ namespace TestScript.SOATest
 
         /// <summary>
         /// 行動条件や対象設定条件で検査対象をフィルターするための構造体
-        /// 40Byte
+        /// 32Byte
         /// SoA OK
         /// </summary>
         [Serializable]
@@ -932,12 +931,33 @@ namespace TestScript.SOATest
         public struct TargetFilter : IEquatable<TargetFilter>
         {
             /// <summary>
+            /// 各フィルター条件がAnd判断、つまり指定した全条件が当てはまるかどうかを判断するかをビットフラグで持つための列挙型。
+            /// </summary>
+            [Flags]
+            public enum FilterBitFlag
+            {
+                特徴フィルター_And判断 = 1 << 0,
+                特殊効果フィルター_And判断 = 1 << 1,
+                行動状態フィルター_And判断 = 1 << 2,
+                イベントフィルター_And判断 = 1 << 3,
+                弱点属性フィルター_And判断 = 1 << 4,
+                使用属性フィルター_And判断 = 1 << 5
+            }
+
+            /// <summary>
+            /// 各フィルター条件のAND/OR判定を管理するビットフラグ
+            /// </summary>
+            [Header("フィルター判定方法")]
+            [SerializeField]
+            private FilterBitFlag _filterFlags;
+
+            /// <summary>
             /// 対象の陣営区分
             /// 複数指定あり
             /// </summary>
             [Header("対象の陣営")]
             [SerializeField]
-            private CharacterSide targetType;
+            private CharacterSide _targetType;
 
             /// <summary>
             /// 対象の特徴
@@ -945,14 +965,7 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("対象の特徴")]
             [SerializeField]
-            private CharacterFeature targetFeature;
-
-            /// <summary>
-            /// このフラグが真の時、全部当てはまってないとダメ。
-            /// </summary>
-            [Header("特徴の判断方法")]
-            [SerializeField]
-            private BitableBool isAndFeatureCheck;
+            private CharacterFeature _targetFeature;
 
             /// <summary>
             /// 対象の状態（バフ、デバフ）
@@ -960,14 +973,7 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("対象が持つ特殊効果")]
             [SerializeField]
-            private SpecialEffect targetEffect;
-
-            /// <summary>
-            /// このフラグが真の時、全部当てはまってないとダメ。
-            /// </summary>
-            [Header("特殊効果の判断方法")]
-            [SerializeField]
-            private BitableBool isAndEffectCheck;
+            private SpecialEffect _targetEffect;
 
             /// <summary>
             /// 対象の状態（逃走、攻撃など）
@@ -975,7 +981,7 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("対象の状態")]
             [SerializeField]
-            private ActState targetState;
+            private ActState _targetState;
 
             /// <summary>
             /// 対象のイベント状況（大ダメージを与えた、とか）でフィルタリング
@@ -983,14 +989,7 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("対象のイベント")]
             [SerializeField]
-            private BrainEventFlagType targetEvent;
-
-            /// <summary>
-            /// このフラグが真の時、全部当てはまってないとダメ。
-            /// </summary>
-            [Header("イベントの判断方法")]
-            [SerializeField]
-            private BitableBool isAndEventCheck;
+            private BrainEventFlagType _targetEvent;
 
             /// <summary>
             /// 対象の弱点属性でフィルタリング
@@ -998,7 +997,7 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("対象の弱点")]
             [SerializeField]
-            private Element targetWeakPoint;
+            private Element _targetWeakPoint;
 
             /// <summary>
             /// 対象が使う属性でフィルタリング
@@ -1006,23 +1005,23 @@ namespace TestScript.SOATest
             /// </summary>
             [Header("対象の使用属性")]
             [SerializeField]
-            private Element targetUseElement;
+            private Element _targetUseElement;
 
             /// <summary>
             /// 検査対象キャラクターの条件に当てはまるかをチェックする。
             /// </summary>
-            /// <param name="belong"></param>
-            /// <param name="feature"></param>
+            /// <param name="solidData"></param>
+            /// <param name="stateInfo"></param>
             /// <returns></returns>
             [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
             public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo)
             {
                 // すべての条件を2つのuint4にパック
                 uint4 masks1 = new(
-                    (uint)this.targetFeature,
-                    (uint)this.targetEffect,
-                    (uint)this.targetEvent,
-                    (uint)this.targetType
+                    (uint)this._targetFeature,
+                    (uint)this._targetEffect,
+                    (uint)this._targetEvent,
+                    (uint)this._targetType
                 );
 
                 uint4 values1 = new(
@@ -1033,9 +1032,9 @@ namespace TestScript.SOATest
                 );
 
                 uint4 masks2 = new(
-                    (uint)this.targetState,
-                    (uint)this.targetWeakPoint,
-                    (uint)this.targetUseElement,
+                    (uint)this._targetState,
+                    (uint)this._targetWeakPoint,
+                    (uint)this._targetUseElement,
                     0u
                 );
 
@@ -1046,16 +1045,20 @@ namespace TestScript.SOATest
                     0u
                 );
 
-                // AND/OR判定タイプ（最初の3つだけAND/OR切り替え可能）
+                // FilterBitFlagからAND/OR判定タイプを取得
                 bool4 checkTypes1 = new(
-                    this.isAndFeatureCheck == BitableBool.TRUE,
-                    this.isAndEffectCheck == BitableBool.TRUE,
-                    this.isAndEventCheck == BitableBool.TRUE,
+                    (this._filterFlags & FilterBitFlag.特徴フィルター_And判断) != 0,
+                    (this._filterFlags & FilterBitFlag.特殊効果フィルター_And判断) != 0,
+                    (this._filterFlags & FilterBitFlag.イベントフィルター_And判断) != 0,
                     false // targetTypeは常にOR判定
                 );
 
-                // 2つ目のuint4は全てOR判定
-                bool4 checkTypes2 = new(false);
+                bool4 checkTypes2 = new(
+                    (this._filterFlags & FilterBitFlag.行動状態フィルター_And判断) != 0,
+                    (this._filterFlags & FilterBitFlag.弱点属性フィルター_And判断) != 0,
+                    (this._filterFlags & FilterBitFlag.使用属性フィルター_And判断) != 0,
+                    false
+                );
 
                 // SIMD演算
                 uint4 and1 = masks1 & values1;
@@ -1101,76 +1104,123 @@ namespace TestScript.SOATest
                 BrainStatus.Element targetWeakPoint,
                 BrainStatus.Element targetUseElement)
             {
-                this.targetType = (CharacterSide)(int)targetType;
-                this.targetFeature = (CharacterFeature)(int)targetFeature;
-                this.isAndFeatureCheck = (BitableBool)(int)isAndFeatureCheck;
-                this.targetEffect = (SpecialEffect)(int)targetEffect;
-                this.isAndEffectCheck = (BitableBool)(int)isAndEffectCheck;
-                this.targetState = (ActState)(int)targetState;
-                this.targetEvent = (BrainEventFlagType)(int)targetEvent;
-                this.isAndEventCheck = (BitableBool)(int)isAndEventCheck;
-                this.targetWeakPoint = (Element)(int)targetWeakPoint;
-                this.targetUseElement = (Element)(int)targetUseElement;
+                this._targetType = (CharacterSide)(int)targetType;
+                this._targetFeature = (CharacterFeature)(int)targetFeature;
+                this._targetEffect = (SpecialEffect)(int)targetEffect;
+                this._targetState = (ActState)(int)targetState;
+                this._targetEvent = (BrainEventFlagType)(int)targetEvent;
+                this._targetWeakPoint = (Element)(int)targetWeakPoint;
+                this._targetUseElement = (Element)(int)targetUseElement;
+
+                // BitableBoolからFilterBitFlagに変換
+                this._filterFlags = 0;
+                if ( isAndFeatureCheck == (BrainStatus.BitableBool)1 )
+                {
+                    this._filterFlags |= FilterBitFlag.特徴フィルター_And判断;
+                }
+
+                if ( isAndEffectCheck == (BrainStatus.BitableBool)1 )
+                {
+                    this._filterFlags |= FilterBitFlag.特殊効果フィルター_And判断;
+                }
+
+                if ( isAndEventCheck == (BrainStatus.BitableBool)1 )
+                {
+                    this._filterFlags |= FilterBitFlag.イベントフィルター_And判断;
+                }
+            }
+
+            /// <summary>
+            /// FilterBitFlagを直接指定するコンストラクタ
+            /// </summary>
+            public TargetFilter(
+                CharacterSide targetType,
+                CharacterFeature targetFeature,
+                SpecialEffect targetEffect,
+                ActState targetState,
+                BrainEventFlagType targetEvent,
+                Element targetWeakPoint,
+                Element targetUseElement,
+                FilterBitFlag filterFlags)
+            {
+                this._targetType = targetType;
+                this._targetFeature = targetFeature;
+                this._targetEffect = targetEffect;
+                this._targetState = targetState;
+                this._targetEvent = targetEvent;
+                this._targetWeakPoint = targetWeakPoint;
+                this._targetUseElement = targetUseElement;
+                this._filterFlags = filterFlags;
             }
 
             #region デバッグ用
 
             public CharacterSide GetTargetType()
             {
-                return this.targetType;
+                return this._targetType;
             }
 
             public bool Equals(TargetFilter other)
             {
-                return this.targetType == other.targetType &&
-                       this.targetFeature == other.targetFeature &&
-                       this.isAndFeatureCheck == other.isAndFeatureCheck &&
-                       this.targetEffect == other.targetEffect &&
-                       this.isAndEffectCheck == other.isAndEffectCheck &&
-                       this.targetState == other.targetState &&
-                       this.targetEvent == other.targetEvent &&
-                       this.isAndEventCheck == other.isAndEventCheck &&
-                       this.targetWeakPoint == other.targetWeakPoint &&
-                       this.targetUseElement == other.targetUseElement;
+                return this._targetType == other._targetType &&
+                       this._targetFeature == other._targetFeature &&
+                       this._targetEffect == other._targetEffect &&
+                       this._targetState == other._targetState &&
+                       this._targetEvent == other._targetEvent &&
+                       this._targetWeakPoint == other._targetWeakPoint &&
+                       this._targetUseElement == other._targetUseElement &&
+                       this._filterFlags == other._filterFlags;
             }
 
             /// <summary>
             /// デバッグ用のデコンストラクタ。
-            /// var (type, feature, isAndFeature, effect, isAndEffect, 
-            ///　state, eventType, isAndEvent, weakPoint, useElement) = filter;
+            /// var (type, feature, effect, state, eventType, weakPoint, useElement, filterFlags) = filter;
             /// </summary>
-            /// <param name="targetType"></param>
-            /// <param name="targetFeature"></param>
-            /// <param name="isAndFeatureCheck"></param>
-            /// <param name="targetEffect"></param>
-            /// <param name="isAndEffectCheck"></param>
-            /// <param name="targetState"></param>
-            /// <param name="targetEvent"></param>
-            /// <param name="isAndEventCheck"></param>
-            /// <param name="targetWeakPoint"></param>
-            /// <param name="targetUseElement"></param>
             public void Deconstruct(
-    out CharacterSide targetType,
-    out CharacterFeature targetFeature,
-    out BitableBool isAndFeatureCheck,
-    out SpecialEffect targetEffect,
-    out BitableBool isAndEffectCheck,
-    out ActState targetState,
-    out BrainEventFlagType targetEvent,
-    out BitableBool isAndEventCheck,
-    out Element targetWeakPoint,
-    out Element targetUseElement)
+                out CharacterSide targetType,
+                out CharacterFeature targetFeature,
+                out SpecialEffect targetEffect,
+                out ActState targetState,
+                out BrainEventFlagType targetEvent,
+                out Element targetWeakPoint,
+                out Element targetUseElement,
+                out FilterBitFlag filterFlags)
             {
-                targetType = this.targetType;
-                targetFeature = this.targetFeature;
-                isAndFeatureCheck = this.isAndFeatureCheck;
-                targetEffect = this.targetEffect;
-                isAndEffectCheck = this.isAndEffectCheck;
-                targetState = this.targetState;
-                targetEvent = this.targetEvent;
-                isAndEventCheck = this.isAndEventCheck;
-                targetWeakPoint = this.targetWeakPoint;
-                targetUseElement = this.targetUseElement;
+                targetType = this._targetType;
+                targetFeature = this._targetFeature;
+                targetEffect = this._targetEffect;
+                targetState = this._targetState;
+                targetEvent = this._targetEvent;
+                targetWeakPoint = this._targetWeakPoint;
+                targetUseElement = this._targetUseElement;
+                filterFlags = this._filterFlags;
+            }
+
+            /// <summary>
+            /// 互換性のためのデコンストラクタ（BitableBool形式）
+            /// </summary>
+            public void Deconstruct(
+                out CharacterSide targetType,
+                out CharacterFeature targetFeature,
+                out bool isAndFeatureCheck,
+                out SpecialEffect targetEffect,
+                out bool isAndEffectCheck,
+                out ActState targetState,
+                out BrainEventFlagType targetEvent,
+                out bool isAndEventCheck,
+                out Element targetWeakPoint,
+                out Element targetUseElement)
+            {
+                targetType = this._targetType;
+                targetFeature = this._targetFeature;
+                isAndFeatureCheck = (this._filterFlags & FilterBitFlag.特徴フィルター_And判断) != 0;
+                targetEffect = this._targetEffect;
+                isAndEffectCheck = (this._filterFlags & FilterBitFlag.特殊効果フィルター_And判断) != 0;
+                targetState = this._targetState;
+                targetEvent = this._targetEvent;
+                isAndEventCheck = (this._filterFlags & FilterBitFlag.イベントフィルター_And判断) != 0;
+                targetWeakPoint = this._targetWeakPoint;
+                targetUseElement = this._targetUseElement;
             }
 
             /// <summary>
@@ -1181,25 +1231,26 @@ namespace TestScript.SOATest
                 System.Text.StringBuilder failedConditions = new();
 
                 // 1. 特徴条件判定
-                if ( this.targetFeature != 0 )
+                if ( this._targetFeature != 0 )
                 {
                     bool featureFailed = false;
                     string failureReason = "";
+                    bool isAndCheck = (this._filterFlags & FilterBitFlag.特徴フィルター_And判断) != 0;
 
-                    if ( this.isAndFeatureCheck == BitableBool.TRUE )
+                    if ( isAndCheck )
                     {
                         // AND条件：全ての特徴が必要
-                        if ( (this.targetFeature & solidData.feature) != this.targetFeature )
+                        if ( (this._targetFeature & solidData.feature) != this._targetFeature )
                         {
                             featureFailed = true;
-                            CharacterFeature missingFeatures = this.targetFeature & ~solidData.feature;
+                            CharacterFeature missingFeatures = this._targetFeature & ~solidData.feature;
                             failureReason = $"AND条件失敗 - 必要な特徴が不足: {missingFeatures}";
                         }
                     }
                     else
                     {
                         // OR条件：いずれかの特徴が必要
-                        if ( (this.targetFeature & solidData.feature) == 0 )
+                        if ( (this._targetFeature & solidData.feature) == 0 )
                         {
                             featureFailed = true;
                             failureReason = "OR条件失敗 - 一致する特徴なし";
@@ -1210,9 +1261,9 @@ namespace TestScript.SOATest
                     {
                         _ = failedConditions.AppendLine($"[特徴条件で失敗]");
                         _ = failedConditions.AppendLine($"  フィールド: targetFeature");
-                        _ = failedConditions.AppendLine($"  期待値: {this.targetFeature} (0x{this.targetFeature:X})");
+                        _ = failedConditions.AppendLine($"  期待値: {this._targetFeature} (0x{this._targetFeature:X})");
                         _ = failedConditions.AppendLine($"  実際の値: {solidData.feature} (0x{solidData.feature:X})");
-                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndFeatureCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  判定方法: {(isAndCheck ? "AND" : "OR")}");
                         _ = failedConditions.AppendLine($"  理由: {failureReason}");
                         _ = failedConditions.AppendLine();
                         return failedConditions.ToString();
@@ -1220,25 +1271,26 @@ namespace TestScript.SOATest
                 }
 
                 // 2. 特殊効果判断
-                if ( this.targetEffect != 0 )
+                if ( this._targetEffect != 0 )
                 {
                     bool effectFailed = false;
                     string failureReason = "";
+                    bool isAndCheck = (this._filterFlags & FilterBitFlag.特殊効果フィルター_And判断) != 0;
 
-                    if ( this.isAndEffectCheck == BitableBool.TRUE )
+                    if ( isAndCheck )
                     {
                         // AND条件：全ての効果が必要
-                        if ( (this.targetEffect & stateInfo.nowEffect) != this.targetEffect )
+                        if ( (this._targetEffect & stateInfo.nowEffect) != this._targetEffect )
                         {
                             effectFailed = true;
-                            SpecialEffect missingEffects = this.targetEffect & ~stateInfo.nowEffect;
+                            SpecialEffect missingEffects = this._targetEffect & ~stateInfo.nowEffect;
                             failureReason = $"AND条件失敗 - 必要な効果が不足: {missingEffects}";
                         }
                     }
                     else
                     {
                         // OR条件：いずれかの効果が必要
-                        if ( (this.targetEffect & stateInfo.nowEffect) == 0 )
+                        if ( (this._targetEffect & stateInfo.nowEffect) == 0 )
                         {
                             effectFailed = true;
                             failureReason = "OR条件失敗 - 一致する効果なし";
@@ -1249,9 +1301,9 @@ namespace TestScript.SOATest
                     {
                         _ = failedConditions.AppendLine($"[特殊効果条件で失敗]");
                         _ = failedConditions.AppendLine($"  フィールド: targetEffect");
-                        _ = failedConditions.AppendLine($"  期待値: {this.targetEffect} (0x{this.targetEffect:X})");
+                        _ = failedConditions.AppendLine($"  期待値: {this._targetEffect} (0x{this._targetEffect:X})");
                         _ = failedConditions.AppendLine($"  実際の値: {stateInfo.nowEffect} (0x{stateInfo.nowEffect:X})");
-                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndEffectCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  判定方法: {(isAndCheck ? "AND" : "OR")}");
                         _ = failedConditions.AppendLine($"  理由: {failureReason}");
                         _ = failedConditions.AppendLine();
                         return failedConditions.ToString();
@@ -1259,25 +1311,26 @@ namespace TestScript.SOATest
                 }
 
                 // 3. イベント判断
-                if ( this.targetEvent != 0 )
+                if ( this._targetEvent != 0 )
                 {
                     bool eventFailed = false;
                     string failureReason = "";
+                    bool isAndCheck = (this._filterFlags & FilterBitFlag.イベントフィルター_And判断) != 0;
 
-                    if ( this.isAndEventCheck == BitableBool.TRUE )
+                    if ( isAndCheck )
                     {
                         // AND条件：全てのイベントが必要
-                        if ( (this.targetEvent & stateInfo.brainEvent) != this.targetEvent )
+                        if ( (this._targetEvent & stateInfo.brainEvent) != this._targetEvent )
                         {
                             eventFailed = true;
-                            BrainEventFlagType missingEvents = this.targetEvent & ~stateInfo.brainEvent;
+                            BrainEventFlagType missingEvents = this._targetEvent & ~stateInfo.brainEvent;
                             failureReason = $"AND条件失敗 - 必要なイベントが不足: {missingEvents}";
                         }
                     }
                     else
                     {
                         // OR条件：いずれかのイベントが必要
-                        if ( (this.targetEvent & stateInfo.brainEvent) == 0 )
+                        if ( (this._targetEvent & stateInfo.brainEvent) == 0 )
                         {
                             eventFailed = true;
                             failureReason = "OR条件失敗 - 一致するイベントなし";
@@ -1288,9 +1341,9 @@ namespace TestScript.SOATest
                     {
                         _ = failedConditions.AppendLine($"[イベント条件で失敗]");
                         _ = failedConditions.AppendLine($"  フィールド: targetEvent");
-                        _ = failedConditions.AppendLine($"  期待値: {this.targetEvent} (0x{this.targetEvent:X})");
+                        _ = failedConditions.AppendLine($"  期待値: {this._targetEvent} (0x{this._targetEvent:X})");
                         _ = failedConditions.AppendLine($"  実際の値: {stateInfo.brainEvent} (0x{stateInfo.brainEvent:X})");
-                        _ = failedConditions.AppendLine($"  判定方法: {(this.isAndEventCheck == BitableBool.TRUE ? "AND" : "OR")}");
+                        _ = failedConditions.AppendLine($"  判定方法: {(isAndCheck ? "AND" : "OR")}");
                         _ = failedConditions.AppendLine($"  理由: {failureReason}");
                         _ = failedConditions.AppendLine();
                         return failedConditions.ToString();
@@ -1301,27 +1354,51 @@ namespace TestScript.SOATest
                 List<string> remainingFailures = new();
 
                 // 陣営チェック
-                if ( this.targetType != 0 && (this.targetType & stateInfo.belong) == 0 )
+                if ( this._targetType != 0 && (this._targetType & stateInfo.belong) == 0 )
                 {
-                    remainingFailures.Add($"  - targetType: 期待値={this.targetType} (0x{this.targetType:X}), 実際の値={stateInfo.belong} (0x{stateInfo.belong:X})");
+                    remainingFailures.Add($"  - targetType: 期待値={this._targetType} (0x{this._targetType:X}), 実際の値={stateInfo.belong} (0x{stateInfo.belong:X})");
                 }
 
-                // 状態チェック
-                if ( this.targetState != 0 && (this.targetState & stateInfo.actState) == 0 )
+                // 状態チェック（AND/OR判定対応）
+                if ( this._targetState != 0 )
                 {
-                    remainingFailures.Add($"  - targetState: 期待値={this.targetState} (0x{this.targetState:X}), 実際の値={stateInfo.actState} (0x{stateInfo.actState:X})");
+                    bool isAndCheck = (this._filterFlags & FilterBitFlag.行動状態フィルター_And判断) != 0;
+                    bool statePassed = isAndCheck ?
+                        (this._targetState & stateInfo.actState) == this._targetState :
+                        (this._targetState & stateInfo.actState) != 0;
+
+                    if ( !statePassed )
+                    {
+                        remainingFailures.Add($"  - targetState: 期待値={this._targetState} (0x{this._targetState:X}), 実際の値={stateInfo.actState} (0x{stateInfo.actState:X}), 判定={(isAndCheck ? "AND" : "OR")}");
+                    }
                 }
 
-                // 弱点チェック
-                if ( this.targetWeakPoint != 0 && (this.targetWeakPoint & solidData.weakPoint) == 0 )
+                // 弱点チェック（AND/OR判定対応）
+                if ( this._targetWeakPoint != 0 )
                 {
-                    remainingFailures.Add($"  - targetWeakPoint: 期待値={this.targetWeakPoint} (0x{this.targetWeakPoint:X}), 実際の値={solidData.weakPoint} (0x{solidData.weakPoint:X})");
+                    bool isAndCheck = (this._filterFlags & FilterBitFlag.弱点属性フィルター_And判断) != 0;
+                    bool weakPointPassed = isAndCheck ?
+                        (this._targetWeakPoint & solidData.weakPoint) == this._targetWeakPoint :
+                        (this._targetWeakPoint & solidData.weakPoint) != 0;
+
+                    if ( !weakPointPassed )
+                    {
+                        remainingFailures.Add($"  - targetWeakPoint: 期待値={this._targetWeakPoint} (0x{this._targetWeakPoint:X}), 実際の値={solidData.weakPoint} (0x{solidData.weakPoint:X}), 判定={(isAndCheck ? "AND" : "OR")}");
+                    }
                 }
 
-                // 使用属性チェック
-                if ( this.targetUseElement != 0 && (this.targetUseElement & solidData.attackElement) == 0 )
+                // 使用属性チェック（AND/OR判定対応）
+                if ( this._targetUseElement != 0 )
                 {
-                    remainingFailures.Add($"  - targetUseElement: 期待値={this.targetUseElement} (0x{this.targetUseElement:X}), 実際の値={solidData.attackElement} (0x{solidData.attackElement:X})");
+                    bool isAndCheck = (this._filterFlags & FilterBitFlag.使用属性フィルター_And判断) != 0;
+                    bool useElementPassed = isAndCheck ?
+                        (this._targetUseElement & solidData.attackElement) == this._targetUseElement :
+                        (this._targetUseElement & solidData.attackElement) != 0;
+
+                    if ( !useElementPassed )
+                    {
+                        remainingFailures.Add($"  - targetUseElement: 期待値={this._targetUseElement} (0x{this._targetUseElement:X}), 実際の値={solidData.attackElement} (0x{solidData.attackElement:X}), 判定={(isAndCheck ? "AND" : "OR")}");
+                    }
                 }
 
                 if ( remainingFailures.Count > 0 )
@@ -1353,34 +1430,16 @@ namespace TestScript.SOATest
                 {
                     System.Text.StringBuilder details = new();
                     _ = details.AppendLine("=== 詳細なビット解析 ===");
+                    _ = details.AppendLine($"FilterFlags: {this._filterFlags} (0x{(int)this._filterFlags:X})");
 
-                    // ビットフラグの詳細を表示する補助メソッド
-                    void AppendBitDetails<T>(string name, T expected, T actual) where T : System.Enum
-                    {
-                        _ = details.AppendLine($"\n{name}:");
-                        _ = details.AppendLine($"  期待されるフラグ: {System.Enum.GetName(typeof(T), expected)} = {expected}");
-                        _ = details.AppendLine($"  実際のフラグ: {System.Enum.GetName(typeof(T), actual)} = {actual}");
-
-                        // 各ビットの状態を表示
-                        int expectedInt = System.Convert.ToInt32(expected);
-                        int actualInt = System.Convert.ToInt32(actual);
-
-                        for ( int i = 0; i < 32; i++ )
-                        {
-                            int bitMask = 1 << i;
-                            if ( (expectedInt & bitMask) != 0 )
-                            {
-                                bool hasbit = (actualInt & bitMask) != 0;
-                                _ = details.AppendLine($"    ビット{i}: {(hasbit ? "○" : "×")}");
-                            }
-                        }
-                    }
-
-                    // 必要に応じて各フィールドの詳細を追加
-                    if ( result.Contains("targetFeature") )
-                    {
-                        AppendBitDetails("CharacterFeature", this.targetFeature, solidData.feature);
-                    }
+                    // フィルターフラグの詳細
+                    _ = details.AppendLine("フィルター設定:");
+                    _ = details.AppendLine($"  特徴フィルター: {((this._filterFlags & FilterBitFlag.特徴フィルター_And判断) != 0 ? "AND" : "OR")}");
+                    _ = details.AppendLine($"  特殊効果フィルター: {((this._filterFlags & FilterBitFlag.特殊効果フィルター_And判断) != 0 ? "AND" : "OR")}");
+                    _ = details.AppendLine($"  行動状態フィルター: {((this._filterFlags & FilterBitFlag.行動状態フィルター_And判断) != 0 ? "AND" : "OR")}");
+                    _ = details.AppendLine($"  イベントフィルター: {((this._filterFlags & FilterBitFlag.イベントフィルター_And判断) != 0 ? "AND" : "OR")}");
+                    _ = details.AppendLine($"  弱点属性フィルター: {((this._filterFlags & FilterBitFlag.弱点属性フィルター_And判断) != 0 ? "AND" : "OR")}");
+                    _ = details.AppendLine($"  使用属性フィルター: {((this._filterFlags & FilterBitFlag.使用属性フィルター_And判断) != 0 ? "AND" : "OR")}");
 
                     result += "\n" + details.ToString();
                 }
@@ -1545,80 +1604,80 @@ namespace TestScript.SOATest
         /// </summary>
         public BrainStatus source;
 
-        [ContextMenu("テストデータ複製")]
-        public void TestDataCopy()
-        {
-            this.baseData.hp = this.source.baseData.hp;
-            this.baseData.mp = this.source.baseData.mp;
+        //       [ContextMenu("テストデータ複製")]
+        //       public void TestDataCopy()
+        //       {
+        //           this.baseData.hp = this.source.baseData.hp;
+        //           this.baseData.mp = this.source.baseData.mp;
 
-            this.baseData.baseAtk.slash = this.source.baseData.baseAtk.slash;
-            this.baseData.baseAtk.pierce = this.source.baseData.baseAtk.pierce;
-            this.baseData.baseAtk.strike = this.source.baseData.baseAtk.strike;
-            this.baseData.baseAtk.fire = this.source.baseData.baseAtk.fire;
-            this.baseData.baseAtk.lightning = this.source.baseData.baseAtk.lightning;
-            this.baseData.baseAtk.light = this.source.baseData.baseAtk.light;
-            this.baseData.baseAtk.dark = this.source.baseData.baseAtk.dark;
+        //           this.baseData.baseAtk.slash = this.source.baseData.baseAtk.slash;
+        //           this.baseData.baseAtk.pierce = this.source.baseData.baseAtk.pierce;
+        //           this.baseData.baseAtk.strike = this.source.baseData.baseAtk.strike;
+        //           this.baseData.baseAtk.fire = this.source.baseData.baseAtk.fire;
+        //           this.baseData.baseAtk.lightning = this.source.baseData.baseAtk.lightning;
+        //           this.baseData.baseAtk.light = this.source.baseData.baseAtk.light;
+        //           this.baseData.baseAtk.dark = this.source.baseData.baseAtk.dark;
 
-            this.baseData.baseDef.slash = this.source.baseData.baseDef.slash;
-            this.baseData.baseDef.pierce = this.source.baseData.baseDef.pierce;
-            this.baseData.baseDef.strike = this.source.baseData.baseDef.strike;
-            this.baseData.baseDef.fire = this.source.baseData.baseDef.fire;
-            this.baseData.baseDef.lightning = this.source.baseData.baseDef.lightning;
-            this.baseData.baseDef.light = this.source.baseData.baseDef.light;
-            this.baseData.baseDef.dark = this.source.baseData.baseDef.dark;
+        //           this.baseData.baseDef.slash = this.source.baseData.baseDef.slash;
+        //           this.baseData.baseDef.pierce = this.source.baseData.baseDef.pierce;
+        //           this.baseData.baseDef.strike = this.source.baseData.baseDef.strike;
+        //           this.baseData.baseDef.fire = this.source.baseData.baseDef.fire;
+        //           this.baseData.baseDef.lightning = this.source.baseData.baseDef.lightning;
+        //           this.baseData.baseDef.light = this.source.baseData.baseDef.light;
+        //           this.baseData.baseDef.dark = this.source.baseData.baseDef.dark;
 
-            this.baseData.initialBelong = (CharacterSide)(int)this.source.baseData.initialBelong;
-            this.baseData.initialMove = (ActState)(int)this.source.baseData.initialMove;
+        //           this.baseData.initialBelong = (CharacterSide)(int)this.source.baseData.initialBelong;
+        //           this.baseData.initialMove = (ActState)(int)this.source.baseData.initialMove;
 
-            this.solidData.attackElement = (Element)(int)this.source.solidData.attackElement;
-            this.solidData.weakPoint = (Element)(int)this.source.solidData.weakPoint;
-            this.solidData.feature = (CharacterFeature)(int)this.source.solidData.feature;
-            this.solidData.rank = (CharacterRank)(int)this.source.solidData.rank;
-            this.solidData.targetingLimit = this.source.solidData.targetingLimit;
+        //           this.solidData.attackElement = (Element)(int)this.source.solidData.attackElement;
+        //           this.solidData.weakPoint = (Element)(int)this.source.solidData.weakPoint;
+        //           this.solidData.feature = (CharacterFeature)(int)this.source.solidData.feature;
+        //           this.solidData.rank = (CharacterRank)(int)this.source.solidData.rank;
+        //           this.solidData.targetingLimit = this.source.solidData.targetingLimit;
 
-            foreach ( KeyValuePair<BrainStatus.ActState, CharacterBrainStatus> item in this.source.brainData )
-            {
-                BrainSetting setting = new();
+        //           foreach ( KeyValuePair<BrainStatus.ActState, CharacterBrainStatus> item in this.source.brainData )
+        //           {
+        //               BrainSetting setting = new();
 
-                setting.judgeData = new BehaviorData[item.Value.actCondition.Length];
-                for ( int i = 0; i < setting.judgeData.Length; i++ )
-                {
-                    setting.judgeData[i].actCondition.judgeValue = item.Value.actCondition[i].actCondition.judgeValue;
-                    setting.judgeData[i].actCondition.judgeCondition = (ActJudgeCondition)(int)item.Value.actCondition[i].actCondition.judgeCondition;
-                    setting.judgeData[i].actCondition.stateChange = (ActState)(int)item.Value.actCondition[i].actCondition.stateChange;
-                    setting.judgeData[i].actCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].actCondition.isInvert;
+        //               setting.judgeData = new BehaviorData[item.Value.actCondition.Length];
+        //               for ( int i = 0; i < setting.judgeData.Length; i++ )
+        //               {
+        //                   setting.judgeData[i].actCondition.judgeValue = item.Value.actCondition[i].actCondition.judgeValue;
+        //                   setting.judgeData[i].actCondition.judgeCondition = (ActJudgeCondition)(int)item.Value.actCondition[i].actCondition.judgeCondition;
+        //                   setting.judgeData[i].actCondition.stateChange = (ActState)(int)item.Value.actCondition[i].actCondition.stateChange;
+        //                   setting.judgeData[i].actCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].actCondition.isInvert;
 
-                    (BrainStatus.CharacterSide targetType, BrainStatus.CharacterFeature targetFeature, BrainStatus.BitableBool isAndFeatureCheck, BrainStatus.SpecialEffect targetEffect, BrainStatus.BitableBool isAndEffectCheck,
-     BrainStatus.ActState targetState, BrainEventFlagType targetEvent, BrainStatus.BitableBool isAndEventCheck, BrainStatus.Element targetWeakPoint, BrainStatus.Element targetUseElement) = item.Value.actCondition[i].actCondition.filter;
-                    setting.judgeData[i].actCondition.filter = new TargetFilter(targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
-     targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement);
+        //                   (BrainStatus.CharacterSide targetType, BrainStatus.CharacterFeature targetFeature, BrainStatus.BitableBool isAndFeatureCheck, BrainStatus.SpecialEffect targetEffect, BrainStatus.BitableBool isAndEffectCheck,
+        //    BrainStatus.ActState targetState, BrainEventFlagType targetEvent, BrainStatus.BitableBool isAndEventCheck, BrainStatus.Element targetWeakPoint, BrainStatus.Element targetUseElement) = item.Value.actCondition[i].actCondition.filter;
+        //                   setting.judgeData[i].actCondition.filter = new TargetFilter(targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
+        //    targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement);
 
-                    setting.judgeData[i].skipData.skipCondition = (SkipJudgeCondition)(int)item.Value.actCondition[i].skipData.skipCondition;
-                    setting.judgeData[i].skipData.judgeValue = item.Value.actCondition[i].skipData.judgeValue;
-                    setting.judgeData[i].skipData.isInvert = (BitableBool)(int)item.Value.actCondition[i].skipData.isInvert;
+        //                   setting.judgeData[i].skipData.skipCondition = (SkipJudgeCondition)(int)item.Value.actCondition[i].skipData.skipCondition;
+        //                   setting.judgeData[i].skipData.judgeValue = item.Value.actCondition[i].skipData.judgeValue;
+        //                   setting.judgeData[i].skipData.isInvert = (BitableBool)(int)item.Value.actCondition[i].skipData.isInvert;
 
-                    setting.judgeData[i].targetCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].targetCondition.isInvert;
+        //                   setting.judgeData[i].targetCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].targetCondition.isInvert;
 
-                    setting.judgeData[i].targetCondition.judgeCondition = (TargetSelectCondition)(int)item.Value.actCondition[i].targetCondition.judgeCondition;
-                    setting.judgeData[i].targetCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].targetCondition.isInvert;
-                    setting.judgeData[i].targetCondition.useAttackOrHateNum = item.Value.actCondition[i].targetCondition.useAttackOrHateNum;
+        //                   setting.judgeData[i].targetCondition.judgeCondition = (TargetSelectCondition)(int)item.Value.actCondition[i].targetCondition.judgeCondition;
+        //                   setting.judgeData[i].targetCondition.isInvert = (BitableBool)(int)item.Value.actCondition[i].targetCondition.isInvert;
+        //                   setting.judgeData[i].targetCondition.useAttackOrHateNum = item.Value.actCondition[i].targetCondition.useAttackOrHateNum;
 
-                    (targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
-     targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement) = item.Value.actCondition[i].targetCondition.filter;
-                    setting.judgeData[i].targetCondition.filter = new TargetFilter(targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
- targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement);
+        //                   (targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
+        //    targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement) = item.Value.actCondition[i].targetCondition.filter;
+        //                   setting.judgeData[i].targetCondition.filter = new TargetFilter(targetType, targetFeature, isAndFeatureCheck, targetEffect, isAndEffectCheck,
+        //targetState, targetEvent, isAndEventCheck, targetWeakPoint, targetUseElement);
 
-                }
+        //               }
 
-                this.brainData.Add((ActState)(int)item.Key, setting);
-            }
+        //               this.brainData.Add((ActState)(int)item.Key, setting);
+        //           }
 
-            this.moveStatus.moveSpeed = this.source.moveStatus.moveSpeed;
-            this.moveStatus.walkSpeed = this.source.moveStatus.walkSpeed;
-            this.moveStatus.dashSpeed = this.source.moveStatus.dashSpeed;
-            this.moveStatus.jumpHeight = this.source.moveStatus.jumpHeight;
+        //           this.moveStatus.moveSpeed = this.source.moveStatus.moveSpeed;
+        //           this.moveStatus.walkSpeed = this.source.moveStatus.walkSpeed;
+        //           this.moveStatus.dashSpeed = this.source.moveStatus.dashSpeed;
+        //           this.moveStatus.jumpHeight = this.source.moveStatus.jumpHeight;
 
-        }
+        //       }
 
     }
 }

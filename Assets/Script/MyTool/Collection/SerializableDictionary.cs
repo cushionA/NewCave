@@ -9,29 +9,29 @@ using UnityEngine;
 public abstract class SerializableDictionary<TKey, TValue> : Dictionary<TKey, TValue>, ISerializationCallbackReceiver
 {
     [SerializeField, HideInInspector]
-    private List<TKey> keyData = new();
+    private List<TKey> _keyData = new();
 
     [SerializeField, HideInInspector]
-    private List<TValue> valueData = new();
+    private List<TValue> _valueData = new();
 
     void ISerializationCallbackReceiver.OnAfterDeserialize()
     {
         this.Clear();
-        for ( int i = 0; i < this.keyData.Count && i < this.valueData.Count; i++ )
+        for ( int i = 0; i < this._keyData.Count && i < this._valueData.Count; i++ )
         {
-            this[this.keyData[i]] = this.valueData[i];
+            this[this._keyData[i]] = this._valueData[i];
         }
     }
 
     void ISerializationCallbackReceiver.OnBeforeSerialize()
     {
-        this.keyData.Clear();
-        this.valueData.Clear();
+        this._keyData.Clear();
+        this._valueData.Clear();
 
         foreach ( KeyValuePair<TKey, TValue> item in this )
         {
-            this.keyData.Add(item.Key);
-            this.valueData.Add(item.Value);
+            this._keyData.Add(item.Key);
+            this._valueData.Add(item.Value);
         }
     }
 }

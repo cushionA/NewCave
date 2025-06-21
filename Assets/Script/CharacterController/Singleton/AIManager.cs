@@ -1,4 +1,5 @@
-using MyTool.Collections;
+using CharacterController.Collections;
+using CharacterController.StatusData;
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -8,7 +9,7 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using static CharacterController.BaseController;
-using static CharacterController.BrainStatus;
+using static CharacterController.StatusData.BrainStatus;
 
 namespace CharacterController
 {
@@ -104,13 +105,13 @@ namespace CharacterController
         /// 座標だけはIJobParallelForTransformで取得する？　せっかくだしLocalScale（＝キャラの向き）まで取っておくといいかも。<>br/>
         /// 向きなんて方向転換した時にデータ書き換えればいいだけかも
         /// </summary>
-        public CharacterDataContainer<CharacterData, BaseController> charaDataDictionary = new(7);
+        public SoACharaDataDic characterDataDictionary;
 
         /// <summary>
         /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。<br/>
         /// キャラデータのチーム設定と一緒に使う<br/>
         /// </summary>
-        public static NativeArray<int> relationMap = new(3, Allocator.Persistent);
+        public NativeArray<int> relationMap = new(3, Allocator.Persistent);
 
         /// <summary>
         /// 陣営ごとに設定されたヘイト値。<br/>
@@ -118,6 +119,13 @@ namespace CharacterController
         /// (チーム値,ハッシュ値)という形式<br/>
         /// </summary>
         public NativeHashMap<int2, int> teamHate = new(7, Allocator.Persistent);
+
+        /// <summary>
+        /// 個人用のヘイト値。<br/>
+        /// ハッシュキーにはゲームオブジェクトのハッシュ値と相手のハッシュを渡す<br/>
+        /// (自分のハッシュ,相手のハッシュ値)という形式<br/>
+        /// </summary>
+        public NativeHashMap<int2, int> personalHate = new(7, Allocator.Persistent);
 
         /// <summary>
         /// AIのイベントを受け付ける入れ物。
@@ -131,13 +139,13 @@ namespace CharacterController
         /// Jobの書き込み先で、ターゲット変更の反映とかも全部はいってる。<br/>
         /// これを受け取ってキャラクターが行動する。
         /// </summary>
-        public UnsafeList<MovementInfo> judgeResult = new(7, Allocator.Persistent);
+        public UnsafeList<MovementInfo> judgeResult = new(130, Allocator.Persistent);
 
         /// <summary>
-        /// 前回判断を実行した際の時間を記録する。
-        /// これを使用して判断結果を受けたオブジェクトたちが前回判定時間を再度設定する。
+        /// キャラデータの管理用データ構造
         /// </summary>
-        public float lastJudgeTime;
+        [SerializeField]
+        private CharacterStatusList _brainStatusList;
 
         /// <summary>
         /// 起動時にシングルトンのインスタンス作成。
@@ -170,14 +178,14 @@ namespace CharacterController
         /// <param name="data"></param>
         /// <param name="hashCode"></param>
         /// <param name="team"></param>
-        public void CharacterAdd(BrainStatus status, GameObject addObject)
+        public void CharacterAdd(BrainStatus status, BaseController addCharacter)
         {
             // 初期所属を追加
             int teamNum = (int)status.baseData.initialBelong;
-            int hashCode = addObject.GetHashCode();
+            int hashCode = addCharacter.gameObject.GetHashCode();
 
             // キャラデータを追加し、敵対する陣営のヘイトリストにも入れる。
-            _ = this.charaDataDictionary.AddByHash(hashCode, new CharacterData(status, addObject));
+            _ = this.characterDataDictionary.Add(status, addCharacter, hashCode);
 
             for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
             {
@@ -204,11 +212,8 @@ namespace CharacterController
         public void CharacterDead(int hashCode, CharacterSide team)
         {
 
-            // 削除の前に値を処理する。
-            this.charaDataDictionary[hashCode].Dispose();
-
             // キャラデータを削除し、敵対する陣営のヘイトリストからも消す。
-            _ = this.charaDataDictionary.RemoveByHash(hashCode);
+            _ = this.characterDataDictionary.RemoveByHash(hashCode);
 
             for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
             {
@@ -242,7 +247,7 @@ namespace CharacterController
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         private bool CheckTeamHostility(int team1, int team2)
         {
-            return (relationMap[team1] & (1 << team2)) > 0;
+            return (this.relationMap[team1] & (1 << team2)) > 0;
         }
 
         /// <summary>
@@ -250,15 +255,11 @@ namespace CharacterController
         /// </summary>
         public void Dispose()
         {
-            for ( int i = 0; i < 3; i++ )
-            {
-                this.charaDataDictionary[i].Dispose();
-                this.teamHate.Dispose();
-            }
-
+            this.characterDataDictionary.Dispose();
+            this.teamHate.Dispose();
             this.eventContainer.Dispose();
             this.teamHate.Dispose();
-            relationMap.Dispose();
+            this.relationMap.Dispose();
 
             Destroy(instance);
         }
@@ -268,42 +269,27 @@ namespace CharacterController
         /// </summary>
         private void BrainJobAct()
         {
-            // キャラの数。
-            int _characterCount = this.charaDataDictionary.Count;
 
-            // ジョブの処理対象データの分割数。
-            int _jobBatchCount;
+            (UnsafeList<BrainStatus.CharacterBaseInfo> characterBaseInfo,
+             UnsafeList<BrainStatus.CharacterAtkStatus> characterAtkStatus,
+             UnsafeList<BrainStatus.CharacterDefStatus> characterDefStatus,
+             UnsafeList<BrainStatus.SolidData> solidData,
+             UnsafeList<BrainStatus.CharacterStateInfo> characterStateInfo,
+             UnsafeList<BrainStatus.MoveStatus> moveStatus,
+             UnsafeList<BrainStatus.CharacterColdLog> coldLog) = this.characterDataDictionary;
 
-            //  キャラクター数に対してバッチカウントの最適化
-            if ( _characterCount <= 32 )
-            {
-                _jobBatchCount = 1;
-            }
-            else if ( _characterCount <= 128 )
-            {
-                _jobBatchCount = 16;
-            }
-            else if ( _characterCount <= 512 )
-            {
-                _jobBatchCount = 64;
-            }
-            else // 513～1000
-            {
-                _jobBatchCount = 128;
-            }
-
-            JobAI brainJob = new()
-            {
-                // データの引き渡し。
-                relationMap = relationMap,
-                characterData = this.charaDataDictionary.GetInternalList1ForJob(),
-                teamHate = this.teamHate,
-                // nowTime = GameManager.instance.NowTime,
-                judgeResult = this.judgeResult
-            };
+            JobAI brainJob = new((
+                characterBaseInfo, characterAtkStatus, characterDefStatus, solidData, characterStateInfo, moveStatus, coldLog),
+                this.personalHate,
+                this.teamHate,
+                this.judgeResult,
+                this.relationMap,
+                this._brainStatusList.brainArray,
+                0 // いずれゲームマネージャーの変数と置き換える
+            );
 
             // ジョブ実行。
-            JobHandle handle = brainJob.Schedule(brainJob.characterData.Length, _jobBatchCount);
+            JobHandle handle = brainJob.Schedule(this.characterDataDictionary.Count, 1);
 
             // ジョブの完了を待機
             handle.Complete();

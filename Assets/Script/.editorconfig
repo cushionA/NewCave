@@ -289,6 +289,18 @@ dotnet_naming_rule.non_field_members_should_be_pascal_case.severity = suggestion
 dotnet_naming_rule.non_field_members_should_be_pascal_case.symbols = non_field_members
 dotnet_naming_rule.non_field_members_should_be_pascal_case.style = pascal_case
 
+# プライベート定数は大文字
+dotnet_naming_rule.private_constants_should_be_upper_case.symbols = private_constants
+dotnet_naming_rule.private_constants_should_be_upper_case.style = upper_case_style
+dotnet_naming_rule.private_constants_should_be_upper_case.severity = error
+
+dotnet_naming_symbols.private_constants.applicable_kinds = field
+dotnet_naming_symbols.private_constants.applicable_accessibilities = private
+dotnet_naming_symbols.private_constants.required_modifiers = const
+
+dotnet_naming_style.upper_case_style.capitalization = all_upper
+dotnet_naming_style.upper_case_style.word_separator = _
+
 # 記号の仕様
 
 dotnet_naming_symbols.interface.applicable_kinds = interface
