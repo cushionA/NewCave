@@ -368,6 +368,13 @@
       },
       "url": "https://packages.unity.com"
     },
+    "jp.co.cyberagent.smartaddresser": {
+      "version": "https://github.com/CyberAgentGameEntertainment/SmartAddresser.git?path=/Assets/SmartAddresser",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "d015dc6c1de5a69ac8fe3e8d665322e36970b356"
+    },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",
       "depth": 0,

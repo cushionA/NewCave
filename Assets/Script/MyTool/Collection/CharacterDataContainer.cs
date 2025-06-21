@@ -156,20 +156,11 @@ namespace MyTool.Collections
         /// </summary>
         public T1 this[GameObject gameObject]
         {
-            get
-            {
-                if ( gameObject == null )
-                {
-                    throw new ArgumentNullException(nameof(gameObject));
-                }
-
-                if ( this.TryGetValue(gameObject, out T1 value1, out _) )
-                {
-                    return value1;
-                }
-
-                throw new KeyNotFoundException($"GameObject {gameObject.name} not found in store");
-            }
+            get => gameObject == null
+                  ? throw new ArgumentNullException(nameof(gameObject))
+                  : this.TryGetValue(gameObject, out T1 value1, out _)
+                  ? value1
+                  : throw new KeyNotFoundException($"GameObject {gameObject.name} not found in store");
             set => this.Add(gameObject, value);  // このインデクサからの追加はT1のみの追加になる点に注意
         }
 
@@ -178,15 +169,9 @@ namespace MyTool.Collections
         /// </summary>
         public T1 this[int hashOrInstanceId]
         {
-            get
-            {
-                if ( this.TryGetValueByHash(hashOrInstanceId, out T1 value1, out _) )
-                {
-                    return value1;
-                }
-
-                throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId.ToString()} not found in store");
-            }
+            get => this.TryGetValueByHash(hashOrInstanceId, out T1 value1, out _)
+                  ? value1
+                  : throw new KeyNotFoundException($"HashCode/InstanceID {hashOrInstanceId} not found in store");
             set => this.AddByHash(hashOrInstanceId, value);  // このインデクサからの追加はT1のみの追加になる点に注意
         }
 
@@ -194,23 +179,11 @@ namespace MyTool.Collections
         /// インデクサ - 値インデックスからの直接アクセス (T1)
         /// </summary>
 
-        public T1 this[int valueIndex, bool isValueIndex]
-        {
-            get
-            {
-                if ( !isValueIndex )
-                {
-                    throw new ArgumentException("Second parameter must be true when accessing by value index");
-                }
-
-                if ( valueIndex < 0 || valueIndex >= this._count || !this.IsValidIndex(valueIndex) )
-                {
-                    throw new ArgumentOutOfRangeException(nameof(valueIndex));
-                }
-
-                return this._values1[valueIndex];
-            }
-        }
+        public T1 this[int valueIndex, bool isValueIndex] => !isValueIndex
+                    ? throw new ArgumentException("Second parameter must be true when accessing by value index")
+                    : valueIndex < 0 || valueIndex >= this._count || !this.IsValidIndex(valueIndex)
+                    ? throw new ArgumentOutOfRangeException(nameof(valueIndex))
+                    : this._values1[valueIndex];
 
         #endregion
 
@@ -439,12 +412,9 @@ namespace MyTool.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T2 GetData2ByIndex(int index)
         {
-            if ( !this.IsValidIndex(index) )
-            {
-                throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry");
-            }
-
-            return this._values2[index];
+            return !this.IsValidIndex(index)
+                ? throw new ArgumentOutOfRangeException(nameof(index), "Index is out of range or points to a removed entry")
+                : this._values2[index];
         }
 
         /// <summary>
@@ -838,12 +808,7 @@ namespace MyTool.Collections
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool ContainsKey(GameObject obj)
         {
-            if ( obj == null )
-            {
-                return false;
-            }
-
-            return this.ContainsKeyByHash(obj.GetHashCode());
+            return obj == null ? false : this.ContainsKeyByHash(obj.GetHashCode());
         }
 
         /// <summary>

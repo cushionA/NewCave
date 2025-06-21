@@ -422,42 +422,25 @@ namespace TestScript
                     }
 
                     // ’Êí‚ÍˆÈãA‹t‚Ìê‡‚ÍˆÈ‰º
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = targetHate >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = targetHate <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE ? targetHate >= condition.judgeValue : targetHate <= condition.judgeValue;
 
                     return result;
 
                 case ActJudgeCondition.HP‚ªˆê’èŠ„‡‚Ì‘ÎÛ‚ª‚¢‚éŽž:
 
                     // ’Êí‚ÍˆÈãA‹t‚Ìê‡‚ÍˆÈ‰º
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterBaseInfo[targetIndex].hpRatio >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterBaseInfo[targetIndex].hpRatio <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterBaseInfo[targetIndex].hpRatio >= condition.judgeValue
+                        : this._characterBaseInfo[targetIndex].hpRatio <= condition.judgeValue;
 
                     return result;
 
                 case ActJudgeCondition.MP‚ªˆê’èŠ„‡‚Ì‘ÎÛ‚ª‚¢‚éŽž:
 
                     // ’Êí‚ÍˆÈãA‹t‚Ìê‡‚ÍˆÈ‰º
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterBaseInfo[targetIndex].mpRatio >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterBaseInfo[targetIndex].mpRatio <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterBaseInfo[targetIndex].mpRatio >= condition.judgeValue
+                        : this._characterBaseInfo[targetIndex].mpRatio <= condition.judgeValue;
 
                     return result;
 
@@ -470,41 +453,24 @@ namespace TestScript
                     int distance = (int)math.distancesq(this._characterBaseInfo[targetIndex].nowPosition, this._characterBaseInfo[targetIndex].nowPosition);
 
                     // ’Êí‚ÍˆÈãA‹t‚Ìê‡‚ÍˆÈ‰º
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = distance >= judgeDist;
-                    }
-                    else
-                    {
-                        result = distance <= judgeDist;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE ? distance >= judgeDist : distance <= judgeDist;
 
                     return result;
 
                 case ActJudgeCondition.“Á’è‚Ì‘®«‚ÅUŒ‚‚·‚é‘ÎÛ‚ª‚¢‚éŽž:
 
                     // ’Êí‚Í‚¢‚éŽžA‹t‚Ìê‡‚Í‚¢‚È‚¢‚Æ‚«
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) > 0;
-                    }
-                    else
-                    {
-                        result = ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) == 0;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) > 0
+                        : ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) == 0;
 
                     return result;
 
                 case ActJudgeCondition.“Á’è‚Ì”‚Ì“G‚É‘_‚í‚ê‚Ä‚¢‚éŽž:
                     // ’Êí‚ÍˆÈãA‹t‚Ìê‡‚ÍˆÈ‰º
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterStateInfo[targetIndex].targetingCount >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterStateInfo[targetIndex].targetingCount <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterStateInfo[targetIndex].targetingCount >= condition.judgeValue
+                        : this._characterStateInfo[targetIndex].targetingCount <= condition.judgeValue;
 
                     return result;
 

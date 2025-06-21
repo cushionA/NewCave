@@ -79,14 +79,9 @@ namespace SplitJob
             // 経過してないなら処理しない。
             // あるいはターゲット消えた場合も判定したい。チームヘイトに含まれてなければ。それだと味方がヘイトの時どうするの。
             // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
-            if ( this.nowTime - this._coldLog[index].lastJudgeTime < intervals.x )
-            {
-                this.stateList[index] = math.select(-1, -2, this.nowTime - this._coldLog[index].lastJudgeTime < intervals.y);
-            }
-            else
-            {
-                this.stateList[index] = 0;
-            }
+            this.stateList[index] = this.nowTime - this._coldLog[index].lastJudgeTime < intervals.x
+                ? math.select(-1, -2, this.nowTime - this._coldLog[index].lastJudgeTime < intervals.y)
+                : 0;
 
         }
     }
@@ -365,42 +360,25 @@ namespace SplitJob
                     }
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = targetHate >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = targetHate <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE ? targetHate >= condition.judgeValue : targetHate <= condition.judgeValue;
 
                     return result;
 
                 case ActJudgeCondition.HPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterBaseInfo[targetIndex].hpRatio >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterBaseInfo[targetIndex].hpRatio <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterBaseInfo[targetIndex].hpRatio >= condition.judgeValue
+                        : this._characterBaseInfo[targetIndex].hpRatio <= condition.judgeValue;
 
                     return result;
 
                 case ActJudgeCondition.MPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterBaseInfo[targetIndex].mpRatio >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterBaseInfo[targetIndex].mpRatio <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterBaseInfo[targetIndex].mpRatio >= condition.judgeValue
+                        : this._characterBaseInfo[targetIndex].mpRatio <= condition.judgeValue;
 
                     return result;
 
@@ -413,41 +391,24 @@ namespace SplitJob
                     int distance = (int)math.distancesq(this._characterBaseInfo[targetIndex].nowPosition, this._characterBaseInfo[targetIndex].nowPosition);
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = distance >= judgeDist;
-                    }
-                    else
-                    {
-                        result = distance <= judgeDist;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE ? distance >= judgeDist : distance <= judgeDist;
 
                     return result;
 
                 case ActJudgeCondition.特定の属性で攻撃する対象がいる時:
 
                     // 通常はいる時、逆の場合はいないとき
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) > 0;
-                    }
-                    else
-                    {
-                        result = ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) == 0;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) > 0
+                        : ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) == 0;
 
                     return result;
 
                 case ActJudgeCondition.特定の数の敵に狙われている時:
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterStateInfo[targetIndex].targetingCount >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterStateInfo[targetIndex].targetingCount <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterStateInfo[targetIndex].targetingCount >= condition.judgeValue
+                        : this._characterStateInfo[targetIndex].targetingCount <= condition.judgeValue;
 
                     return result;
 
@@ -596,14 +557,9 @@ namespace SplitJob
 
             if ( selectMove < 0 )
             {
-                if ( selectMove == -1 )
-                {
-                    resultData.result = CharacterController.BaseController.JudgeResult.方向転換をした;
-                }
-                else
-                {
-                    resultData.result = CharacterController.BaseController.JudgeResult.何もなし;
-                }
+                resultData.result = selectMove == -1
+                    ? CharacterController.BaseController.JudgeResult.方向転換をした
+                    : CharacterController.BaseController.JudgeResult.何もなし;
 
                 this.judgeResult[index] = resultData;
                 return;
@@ -773,42 +729,25 @@ namespace SplitJob
                     }
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = targetHate >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = targetHate <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE ? targetHate >= condition.judgeValue : targetHate <= condition.judgeValue;
 
                     return result;
 
                 case ActJudgeCondition.HPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterBaseInfo[targetIndex].hpRatio >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterBaseInfo[targetIndex].hpRatio <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterBaseInfo[targetIndex].hpRatio >= condition.judgeValue
+                        : this._characterBaseInfo[targetIndex].hpRatio <= condition.judgeValue;
 
                     return result;
 
                 case ActJudgeCondition.MPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterBaseInfo[targetIndex].mpRatio >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterBaseInfo[targetIndex].mpRatio <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterBaseInfo[targetIndex].mpRatio >= condition.judgeValue
+                        : this._characterBaseInfo[targetIndex].mpRatio <= condition.judgeValue;
 
                     return result;
 
@@ -821,41 +760,24 @@ namespace SplitJob
                     int distance = (int)math.distancesq(this._characterBaseInfo[targetIndex].nowPosition, this._characterBaseInfo[targetIndex].nowPosition);
 
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = distance >= judgeDist;
-                    }
-                    else
-                    {
-                        result = distance <= judgeDist;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE ? distance >= judgeDist : distance <= judgeDist;
 
                     return result;
 
                 case ActJudgeCondition.特定の属性で攻撃する対象がいる時:
 
                     // 通常はいる時、逆の場合はいないとき
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) > 0;
-                    }
-                    else
-                    {
-                        result = ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) == 0;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) > 0
+                        : ((int)this._solidData[targetIndex].attackElement & condition.judgeValue) == 0;
 
                     return result;
 
                 case ActJudgeCondition.特定の数の敵に狙われている時:
                     // 通常は以上、逆の場合は以下
-                    if ( condition.isInvert == BitableBool.FALSE )
-                    {
-                        result = this._characterStateInfo[targetIndex].targetingCount >= condition.judgeValue;
-                    }
-                    else
-                    {
-                        result = this._characterStateInfo[targetIndex].targetingCount <= condition.judgeValue;
-                    }
+                    result = condition.isInvert == BitableBool.FALSE
+                        ? this._characterStateInfo[targetIndex].targetingCount >= condition.judgeValue
+                        : this._characterStateInfo[targetIndex].targetingCount <= condition.judgeValue;
 
                     return result;
 
