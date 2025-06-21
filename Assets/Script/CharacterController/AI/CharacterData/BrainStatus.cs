@@ -50,14 +50,19 @@ namespace CharacterController.StatusData
         }
 
         /// <summary>
-        /// 行動判断をする前に
-        /// 自分のMPやHPの割合などの、自分に関する前提条件を判断するための設定
+        /// クールタイムをキャンセルする条件
         /// </summary>
         public enum SkipJudgeCondition
         {
             自分のHPが一定割合の時,
             自分のMPが一定割合の時,
-            条件なし // 何も当てはまらなかった時の補欠条件。
+            味方のHPが一定割合の時,
+            味方のMPが一定割合の時,
+            敵のHPが一定割合の時,
+            敵のMPが一定割合の時,
+            味方の距離が一定の時,
+            敵の距離が一定の時,
+            条件なし // クールタイムスキップなし
         }
 
         /// <summary>
@@ -438,7 +443,7 @@ namespace CharacterController.StatusData
 
         /// <summary>
         /// 参照頻度が少なく、加えて連続参照されないデータを集めた構造体。
-        /// 16byte
+        /// 32byte
         /// </summary>
         public struct CharacterColdLog
         {
@@ -462,6 +467,12 @@ namespace CharacterController.StatusData
             /// </summary>
             public float lastMoveJudgeTime;
 
+            /// <summary>
+            /// 現在のクールタイムのデータ。
+            /// </summary>
+            [HideInInspector]
+            public CoolTimeData nowCoolTime;
+
             public CharacterColdLog(BrainStatus status, int hash)
             {
                 this.characterID = status.characterID;
@@ -469,6 +480,7 @@ namespace CharacterController.StatusData
                 // 最初はマイナスで10000を入れることですぐ動けるように
                 this.lastJudgeTime = -10000;
                 this.lastMoveJudgeTime = -10000;
+                nowCoolTime = new CoolTimeData();
             }
 
         }
@@ -783,7 +795,7 @@ namespace CharacterController.StatusData
             /// 行動をスキップするための条件。
             /// </summary>
             [TabGroup(group: "AI挙動", tab: "スキップ条件")]
-            public SkipJudgeData skipData;
+            public CoolTimeData coolTimeData;
 
             /// <summary>
             /// 行動の条件。
@@ -805,11 +817,11 @@ namespace CharacterController.StatusData
         /// <summary>
         /// 判断に使用するデータ。
         /// SoA OK
-        /// 12Byte
+        /// 16Byte
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
-        public struct SkipJudgeData
+        public struct CoolTimeData
         {
             /// <summary>
             /// 行動判定をスキップする条件
@@ -831,6 +843,10 @@ namespace CharacterController.StatusData
             [Header("基準反転フラグ")]
             public BitableBool isInvert;
 
+            /// <summary>
+            /// 設定するクールタイム。
+            /// </summary>
+            public float coolTime;
         }
 
         /// <summary>

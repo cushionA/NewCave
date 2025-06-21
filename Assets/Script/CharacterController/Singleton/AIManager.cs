@@ -144,8 +144,7 @@ namespace CharacterController
         /// <summary>
         /// キャラデータの管理用データ構造
         /// </summary>
-        [SerializeField]
-        private CharacterStatusList _brainStatusList;
+        public CharacterStatusList brainStatusList;
 
         /// <summary>
         /// 起動時にシングルトンのインスタンス作成。
@@ -284,7 +283,7 @@ namespace CharacterController
                 this.teamHate,
                 this.judgeResult,
                 this.relationMap,
-                this._brainStatusList.brainArray,
+                this.brainStatusList.brainArray,
                 0 // いずれゲームマネージャーの変数と置き換える
             );
 

@@ -169,7 +169,7 @@ namespace CharacterController
             // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
             if ( this.nowTime - this._coldLog[index].lastJudgeTime < intervals.x )
             {
-                resultData.result = this.nowTime - this._coldLog[index].lastJudgeTime < intervals.y ? CharacterController.BaseController.JudgeResult.方向転換をした : CharacterController.BaseController.JudgeResult.何もなし;
+                resultData.result = this.nowTime - this._coldLog[index].lastJudgeTime < intervals.y ? BaseController.JudgeResult.方向転換をした : BaseController.JudgeResult.何もなし;
 
                 // 移動方向判断だけはする。
                 //　正確には距離判定。
@@ -180,6 +180,19 @@ namespace CharacterController
                 this.judgeResult[index] = resultData;
 
                 return;
+            }
+
+            // クールタイムの判断を行う
+            if ( this.nowTime - this._coldLog[index].lastJudgeTime < this._coldLog[index].nowCoolTime.coolTime )
+            {
+                // 時間がダメで、クールタイムのスキップ条件を満たしていなければスキップする。
+                if ( this.IsCoolTimeSkip(this._coldLog[index].nowCoolTime, index) != 1 )
+                {
+                    resultData.result = BaseController.JudgeResult.方向転換をした;
+
+                    // 結果を設定。
+                    this.judgeResult[index] = resultData;
+                }
             }
 
             // characterData[index].brainData[nowMode].judgeInterval みたいな値は何回も使うなら一時変数に保存していい。
@@ -204,17 +217,16 @@ namespace CharacterController
 
             // 行動条件の中で前提を満たしたものを取得するビット
             // なお、実際の判断時により優先的な条件が満たされた場合は上位ビットはまとめて消す。
-            int enableCondition = 0;
+            int enableCondition = (1 << brainData.behaviorSetting.Length) - 1;
 
-            // 前提となる自分についてのスキップ条件を確認。
-            // 最後の条件は補欠条件なので無視
+            // クールタイム中ならスキップ判定を行う
             for ( int i = 0; i < brainData.behaviorSetting.Length - 1; i++ )
             {
 
-                SkipJudgeData skipData = brainData.behaviorSetting[i].skipData;
+                CoolTimeData skipData = brainData.behaviorSetting[i].coolTimeData;
 
                 // スキップ条件を解釈して判断
-                if ( skipData.skipCondition == SkipJudgeCondition.条件なし || this.JudgeSkipByCondition(skipData, index) == 1 )
+                if ( skipData.skipCondition == SkipJudgeCondition.条件なし || this.IsCoolTimeSkip(skipData, index) == 1 )
                 {
                     enableCondition |= 1 << i;
                 }
@@ -338,7 +350,7 @@ namespace CharacterController
         /// <param name="charaData">キャラクターデータ</param>
         /// <returns>条件に合致する場合は1、それ以外は0</returns>
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public int JudgeSkipByCondition(in SkipJudgeData skipData, int myIndex)
+        public int IsCoolTimeSkip(in CoolTimeData skipData, int myIndex)
         {
             SkipJudgeCondition condition = skipData.skipCondition;
             switch ( condition )
