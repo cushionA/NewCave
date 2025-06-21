@@ -261,7 +261,7 @@ jobs:
     # 13. アーティファクトのアップロード
     - name: Upload Reports
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: code-quality-reports
         path: reports/
