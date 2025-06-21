@@ -52,7 +52,7 @@ namespace CharacterController
         /// 行動に使用するデータの構造体。
         /// 現在の行動状態、移動方向、判断基準、など必要なものは全て収める。
         /// これに従って動くというデータ。
-        /// 
+        /// 28Byte
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
@@ -78,6 +78,7 @@ namespace CharacterController
             /// 番号で行動を指定する。
             /// 攻撃に限らず逃走とかも全部。移動方向から使用モーション、行動の種別まで（魔法とか移動とか）
             /// こっちの構造データはステータスに持たせとこ。行動状態ごとに番号で指定された行動をする。
+            /// 状態変更の場合、これで変更先の状態を指定する。
             /// </summary>
             public int actNum;
 
@@ -102,6 +103,17 @@ namespace CharacterController
             /// 選択したターゲット選択条件を設定する。
             /// </summary>
             public int selectTargetCondition;
+
+            /// <summary>
+            /// 新規判断時の処理
+            /// 行動終了後？
+            /// </summary>
+            public void JudgeUpdate(int hashCode)
+            {
+                // 判断情報をキャラデータに反映する。
+                // 時間に関してはゲームマネージャー実装後にマネージャーからとるように変更するよ。
+                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, moveState, result == JudgeResult.新しく判断をした ? actNum : -1, 0);
+            }
 
             /// <summary>
             /// 

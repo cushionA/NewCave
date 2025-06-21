@@ -851,6 +851,38 @@ namespace CharacterController.Collections
             }
         }
 
+        /// <summary>
+        /// 新規判断時の処理
+        /// 判断完了後にクールタイムなどをアップデートする。
+        /// </summary>
+        public void UpdateDataAfterJudge(int hashCode, ActState newAct, int actionNum, float judgeTime)
+        {
+            if ( TryGetIndexByHash(hashCode, out int index) )
+            {
+                int id = _coldLog[index].characterID;
+
+                CharacterStateInfo stateInfo = _characterStateInfo[index];
+                stateInfo.actState = newAct;
+                _characterStateInfo[index] = stateInfo;
+
+                CharacterColdLog coldLog = _coldLog[index];
+
+                coldLog.lastMoveJudgeTime = judgeTime;
+
+                // 有効な新規判断をしている場合。
+                if ( actionNum != -1 )
+                {
+                    coldLog.lastJudgeTime = judgeTime;
+                    coldLog.nowCoolTime = AIManager.instance.brainStatusList.brainArray[id - 1].brainSetting[(int)newAct].behaviorSetting[actionNum].coolTimeData;
+                }
+
+                _coldLog[index] = coldLog;
+            }
+
+            // 存在しなければ処理しない。
+            return;
+        }
+
         #endregion
 
         #region 内部メソッド
