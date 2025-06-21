@@ -201,12 +201,12 @@ jobs:
         IFS=',' read -ra FILES <<< "${{ steps.changed-files.outputs.all_changed_files }}"
         python unity_cleanup.py "${FILES[@]}"
         
-    # 10. 変更のコミット（pushの場合）
+    # 10. 変更のコミット（pushの場合のみ、mainブランチへの直接pushは避ける）
     - name: Commit Formatted Code
       if: |
         github.event_name == 'push' && 
         steps.format.outputs.formatted == 'true' &&
-        github.ref != 'refs/heads/main'  # mainブランチへの直接pushは避ける
+        github.ref != 'refs/heads/main'
       run: |
         # Gitの設定
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
