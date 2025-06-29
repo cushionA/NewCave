@@ -153,7 +153,7 @@ namespace CharacterController
         /// <summary>
         /// ゲームオブジェクトのハッシュ値
         /// </summary>
-        public int objecthash;
+        public int objectHash;
 
         /// <summary>
         /// 初期化処理。
