@@ -2,6 +2,7 @@ using CharacterController.StatusData;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
@@ -473,6 +474,7 @@ namespace CharacterController.Collections
         /// </summary>
         /// <param name="hashCode">書き換え対象のハッシュ値</param>
         /// <param name="newDataIndex">新しくエントリに割り当てる値の位置</param>
+        [BurstCompile]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void UpdateEntryDataIndex(int hashCode, int newDataIndex)
         {
@@ -501,6 +503,7 @@ namespace CharacterController.Collections
         /// <summary>
         /// ハッシュテーブルからエントリを削除
         /// </summary>
+        [BurstCompile]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void RemoveFromHashTable(int hashCode)
         {
@@ -649,6 +652,8 @@ namespace CharacterController.Collections
         /// <param name="hashCode"></param>
         /// <param name="index"></param>
         /// <returns></returns>
+        [BurstCompile]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetIndexByHash(int hashCode, out int index)
         {
             int bucketIndex = this.GetBucketIndex(hashCode);
