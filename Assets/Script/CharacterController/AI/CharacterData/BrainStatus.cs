@@ -37,7 +37,7 @@ namespace CharacterController.StatusData
         /// 対象が自分、味方、敵のどれかという区分と否定（以上が以内になったり）フラグの組み合わせで表現 - > IsInvertフラグ
         /// 味方が死んだとき、は死亡状態で数秒キャラを残すことで、死亡を条件にしたフィルターにかかるようにするか。
         /// </summary>
-        public enum ActJudgeCondition
+        public enum ActJudgeCondition : byte
         {
             指定のヘイト値の敵がいる時 = 1,
             //対象が一定数の時 = 2, // フィルターも活用することで、ここでかなりの数の単純な条件はやれる。一体以上条件でタイプフィルターで対象のタイプ絞ったり
@@ -46,15 +46,17 @@ namespace CharacterController.StatusData
             設定距離に対象がいる時 = 4,  //距離系の処理は別のやり方で事前にキャッシュを行う。AIの設定の範囲だけセンサーで調べる方法をとる。判断時にやるようにする？
             特定の属性で攻撃する対象がいる時 = 5,
             特定の数の敵に狙われている時 = 6,// 陣営フィルタリングは有効
+            近距離に対象が一定数いる時,// 未実装
             条件なし = 0 // 何も当てはまらなかった時の補欠条件。
         }
 
         /// <summary>
         /// クールタイムをキャンセルする条件
+        /// 範囲で設定するようにしよう
         /// </summary>
-        public enum SkipJudgeCondition
+        public enum SkipJudgeCondition : byte
         {
-            自分のHPが一定割合の時,
+            自分のHPが一定割合の時 = 1,
             自分のMPが一定割合の時,
             味方のHPが一定割合の時,
             味方のMPが一定割合の時,
@@ -62,22 +64,12 @@ namespace CharacterController.StatusData
             敵のMPが一定割合の時,
             味方の距離が一定の時,
             敵の距離が一定の時,
-            条件なし // クールタイムスキップなし
-        }
-
-        /// <summary>
-        /// MoveJudgeConditionの対象のタイプ
-        /// </summary>
-        public enum TargetType
-        {
-            自分 = 0,
-            味方 = 1,
-            敵 = 2
+            条件なし = 0 // クールタイムスキップなし
         }
 
         /// <summary>
         /// 判断の結果選択される行動のタイプ。
-        /// 
+        /// これは行動を起こした後に今何をしている、という感じで使う？
         /// </summary>
         [Flags]
         public enum ActState
@@ -86,11 +78,12 @@ namespace CharacterController.StatusData
             追跡 = 1 << 0,
             逃走 = 1 << 1,
             攻撃 = 1 << 2,
-            待機 = 1 << 3,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？
+            待機 = 1 << 3,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？ 移動もする
             防御 = 1 << 4,// 動き出す距離を設定できるようにする？ その場で基本ガードだけど、相手がいくらか離れたら動き出す、的な
             支援 = 1 << 5,
             回復 = 1 << 6,
             集合 = 1 << 7,// 特定の味方の場所に行く。集合後に防御に移行するロジックを組めば護衛にならない？
+            トリガー行動 = 1 << 8 // トリガーに応じて特定の行動を行うための行動入れ。
         }
 
         /// <summary>
@@ -99,7 +92,7 @@ namespace CharacterController.StatusData
         /// あるいは味方の支援・回復・護衛対象を決める
         /// これも否定フラグとの組み合わせで使う
         /// </summary>
-        public enum TargetSelectCondition
+        public enum TargetSelectCondition : byte
         {
             高度,
             HP割合,
@@ -121,7 +114,6 @@ namespace CharacterController.StatusData
             雷防御力,
             光防御力,
             闇防御力,
-            距離,
             自分,
             プレイヤー,
             指定なし_ヘイト値, // 基本の条件。対象の中で最もヘイト高い相手を攻撃する。
@@ -158,7 +150,7 @@ namespace CharacterController.StatusData
         /// キャラクターが所属する陣営
         /// </summary>
         [Flags]
-        public enum CharacterSide
+        public enum CharacterBelong : byte
         {
             プレイヤー = 1 << 0,// 味方
             魔物 = 1 << 1,// 一般的な敵
@@ -171,7 +163,7 @@ namespace CharacterController.StatusData
         /// 状態異常は分ける。
         /// </summary>
         [Flags]
-        public enum Element
+        public enum Element : byte
         {
             斬撃属性 = 1 << 0,
             刺突属性 = 1 << 1,
@@ -187,7 +179,7 @@ namespace CharacterController.StatusData
         /// キャラのレベル
         /// このレベルが高いと他の敵に邪魔されない
         /// </summary>
-        public enum CharacterRank
+        public enum CharacterRank : byte
         {
             ザコ,//雑魚
             主力級,//基本はこれ
@@ -199,7 +191,7 @@ namespace CharacterController.StatusData
         /// 特殊状態
         /// </summary>
         [Flags]
-        public enum SpecialEffect
+        public enum SpecialEffect : byte
         {
             ヘイト増大 = 1 << 1,
             ヘイト減少 = 1 << 2,
@@ -207,10 +199,32 @@ namespace CharacterController.StatusData
         }
 
         /// <summary>
+        /// 認識しているオブジェクトを示すビットフラグ
+        /// </summary>
+        [Flags]
+        public enum RecognizeObjectType
+        {
+            何もなし = 0,
+            アイテム = 1 << 0, // アイテムを認識
+            プレイヤー側キャラ = 1 << 1, // プレイヤー側のキャラを認識
+            魔物側キャラ = 1 << 2, // 敵側のキャラを認識
+            中立側キャラ = 1 << 3, // 中立側のキャラを認識
+            危険物 = 1 << 4, // 危険物を認識
+            飛び道具攻撃 = 1 << 5, // 攻撃を認識
+            バフエリア = 1 << 6, // バフエリアを認識
+            デバフエリア = 1 << 7, // デバフエリアを認識
+            水場 = 1 << 8, // 水場を認識
+            毒沼 = 1 << 9, // 毒沼を認識
+            ダメージエリア = 1 << 10, // ダメージエリアを認識
+            破壊可能オブジェクト = 1 << 11, // 破壊可能なオブジェクトを認識
+            よじ登りポイント = 1 << 12, // 崖を認識
+        }
+
+        /// <summary>
         /// bitableな真偽値
         /// Jobシステム、というよりネイティブコードと bool の相性が良くないため実装
         /// </summary>
-        public enum BitableBool
+        public enum BitableBool : byte
         {
             FALSE = 0,
             TRUE = 1
@@ -282,8 +296,46 @@ namespace CharacterController.StatusData
         }
 
         /// <summary>
+        /// センサーを通じて獲得した周囲の認識データ。
+        /// SoA OK
+        /// </summary>
+        [Serializable]
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RecognitionData
+        {
+            /// <summary>
+            /// 至近距離のプレイヤー陣営キャラの数
+            /// </summary>
+            public byte nearlyPlayerSideCount;
+
+            /// <summary>
+            /// 至近距離の敵キャラ陣営のキャラの数
+            /// </summary>
+            public byte nearlyMonsterSideCount;
+
+            /// <summary>
+            /// 至近距離の中立陣営キャラの数
+            /// </summary>
+            public byte nearlyOtherSideCount;
+
+            /// <summary>
+            /// 現在認識しているオブジェクト情報
+            /// </summary>
+            public RecognizeObjectType recognizeObject;
+
+            public void Reset()
+            {
+                this.nearlyPlayerSideCount = 0;
+                this.nearlyMonsterSideCount = 0;
+                this.nearlyOtherSideCount = 0;
+                this.recognizeObject = RecognizeObjectType.何もなし;
+            }
+        }
+
+        /// <summary>
         /// キャラの行動（歩行速度とか）のステータス。
         /// 移動速度など。
+        /// 横と縦どちらの距離を優先で詰めるかとかジャンプ関連のやつも入れた方がいいかもな
         /// 16Byte
         /// SoA Ok
         /// </summary>
@@ -448,7 +500,7 @@ namespace CharacterController.StatusData
         public struct CharacterColdLog
         {
             /// <summary>
-            /// キャラクターのID
+            /// キャラクターのマスタ－データ上のID
             /// </summary>
             public readonly int characterID;
 
@@ -480,7 +532,7 @@ namespace CharacterController.StatusData
                 // 最初はマイナスで10000を入れることですぐ動けるように
                 this.lastJudgeTime = -10000;
                 this.lastMoveJudgeTime = -10000;
-                nowCoolTime = new CoolTimeData();
+                this.nowCoolTime = new CoolTimeData();
             }
 
         }
@@ -574,7 +626,7 @@ namespace CharacterController.StatusData
             /// <summary>
             /// 現在のキャラクターの所属
             /// </summary>
-            public CharacterSide belong;
+            public CharacterBelong belong;
 
             /// <summary>
             /// 現在の行動状況
@@ -815,9 +867,9 @@ namespace CharacterController.StatusData
         }
 
         /// <summary>
-        /// 判断に使用するデータ。
+        /// 行動後のクールタイムキャンセル判断に使用するデータ。
         /// SoA OK
-        /// 16Byte
+        /// 10Byte
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
@@ -937,7 +989,7 @@ namespace CharacterController.StatusData
 
         /// <summary>
         /// 行動条件や対象設定条件で検査対象をフィルターするための構造体
-        /// 32Byte
+        /// 22Byte
         /// SoA OK
         /// </summary>
         [Serializable]
@@ -948,7 +1000,7 @@ namespace CharacterController.StatusData
             /// 各フィルター条件がAnd判断、つまり指定した全条件が当てはまるかどうかを判断するかをビットフラグで持つための列挙型。
             /// </summary>
             [Flags]
-            public enum FilterBitFlag
+            public enum FilterBitFlag : byte
             {
                 特徴フィルター_And判断 = 1 << 0,
                 特殊効果フィルター_And判断 = 1 << 1,
@@ -971,11 +1023,12 @@ namespace CharacterController.StatusData
             /// </summary>
             [Header("対象の陣営")]
             [SerializeField]
-            private CharacterSide _targetType;
+            private CharacterBelong _targetType;
 
             /// <summary>
             /// 対象の特徴
             /// 複数指定あり
+            /// intEnum
             /// </summary>
             [Header("対象の特徴")]
             [SerializeField]
@@ -992,6 +1045,7 @@ namespace CharacterController.StatusData
             /// <summary>
             /// 対象の状態（逃走、攻撃など）
             /// 複数指定あり
+            /// intEnum
             /// </summary>
             [Header("対象の状態")]
             [SerializeField]
@@ -1022,13 +1076,20 @@ namespace CharacterController.StatusData
             private Element _targetUseElement;
 
             /// <summary>
+            /// 対象の距離でフィルタリング
+            /// </summary>
+            [Header("対象の距離範囲")]
+            [SerializeField]
+            private float2 _distanceRange;
+
+            /// <summary>
             /// 検査対象キャラクターの条件に当てはまるかをチェックする。
             /// </summary>
             /// <param name="solidData"></param>
             /// <param name="stateInfo"></param>
             /// <returns></returns>
             [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-            public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo)
+            public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo, float2 nowPosition, float2 targetPosition)
             {
                 // すべての条件を2つのuint4にパック
                 uint4 masks1 = new(
@@ -1082,8 +1143,29 @@ namespace CharacterController.StatusData
                 bool4 pass1 = EvaluateConditions(masks1, and1, checkTypes1);
                 bool4 pass2 = EvaluateConditions(masks2, and2, checkTypes2);
 
-                // すべての条件がtrueかチェック
-                return (byte)(math.all(pass1 & pass2) ? 1 : 0);
+                // すべての条件が満たされているかをチェック
+                if ( math.all(pass1) && math.all(pass2) )
+                {
+                    // 条件が満たされている場合、距離チェックを行う
+                    if ( math.any(this._distanceRange != float2.zero) )
+                    {
+                        // 距離チェック
+                        float distance = math.distancesq(nowPosition, targetPosition);
+                        bool2 distanceCheck = new bool2(
+                            this._distanceRange.x == 0 || distance >= math.pow(this._distanceRange.x, 2),
+                            this._distanceRange.y == 0 || distance <= math.pow(this._distanceRange.y, 2)
+                        );
+
+                        // 距離条件をANDで結合
+                        return math.all(distanceCheck) ? (byte)1 : (byte)0;
+                    }
+
+                    // 距離チェック不要ですべての条件が満たされている場合は1を返す
+                    return 1;
+                }
+
+                // 条件が満たされていない場合は0を返す
+                return (byte)0;
             }
 
             /// <summary>
@@ -1103,73 +1185,9 @@ namespace CharacterController.StatusData
                 return zeroMasks | selectedConditions;
             }
 
-            /// <summary>
-            /// 個別パラメータを受け取るコンストラクタ
-            /// </summary>
-            public TargetFilter(
-                BrainStatus.CharacterSide targetType,
-                BrainStatus.CharacterFeature targetFeature,
-                BrainStatus.BitableBool isAndFeatureCheck,
-                BrainStatus.SpecialEffect targetEffect,
-                BrainStatus.BitableBool isAndEffectCheck,
-                BrainStatus.ActState targetState,
-                CharacterController.AIManager.BrainEventFlagType targetEvent,
-                BrainStatus.BitableBool isAndEventCheck,
-                BrainStatus.Element targetWeakPoint,
-                BrainStatus.Element targetUseElement)
-            {
-                this._targetType = (CharacterSide)(int)targetType;
-                this._targetFeature = (CharacterFeature)(int)targetFeature;
-                this._targetEffect = (SpecialEffect)(int)targetEffect;
-                this._targetState = (ActState)(int)targetState;
-                this._targetEvent = (BrainEventFlagType)(int)targetEvent;
-                this._targetWeakPoint = (Element)(int)targetWeakPoint;
-                this._targetUseElement = (Element)(int)targetUseElement;
-
-                // BitableBoolからFilterBitFlagに変換
-                this._filterFlags = 0;
-                if ( isAndFeatureCheck == (BrainStatus.BitableBool)1 )
-                {
-                    this._filterFlags |= FilterBitFlag.特徴フィルター_And判断;
-                }
-
-                if ( isAndEffectCheck == (BrainStatus.BitableBool)1 )
-                {
-                    this._filterFlags |= FilterBitFlag.特殊効果フィルター_And判断;
-                }
-
-                if ( isAndEventCheck == (BrainStatus.BitableBool)1 )
-                {
-                    this._filterFlags |= FilterBitFlag.イベントフィルター_And判断;
-                }
-            }
-
-            /// <summary>
-            /// FilterBitFlagを直接指定するコンストラクタ
-            /// </summary>
-            public TargetFilter(
-                CharacterSide targetType,
-                CharacterFeature targetFeature,
-                SpecialEffect targetEffect,
-                ActState targetState,
-                BrainEventFlagType targetEvent,
-                Element targetWeakPoint,
-                Element targetUseElement,
-                FilterBitFlag filterFlags)
-            {
-                this._targetType = targetType;
-                this._targetFeature = targetFeature;
-                this._targetEffect = targetEffect;
-                this._targetState = targetState;
-                this._targetEvent = targetEvent;
-                this._targetWeakPoint = targetWeakPoint;
-                this._targetUseElement = targetUseElement;
-                this._filterFlags = filterFlags;
-            }
-
             #region デバッグ用
 
-            public CharacterSide GetTargetType()
+            public CharacterBelong GetTargetType()
             {
                 return this._targetType;
             }
@@ -1191,7 +1209,7 @@ namespace CharacterController.StatusData
             /// var (type, feature, effect, state, eventType, weakPoint, useElement, filterFlags) = filter;
             /// </summary>
             public void Deconstruct(
-                out CharacterSide targetType,
+                out CharacterBelong targetType,
                 out CharacterFeature targetFeature,
                 out SpecialEffect targetEffect,
                 out ActState targetState,
@@ -1214,7 +1232,7 @@ namespace CharacterController.StatusData
             /// 互換性のためのデコンストラクタ（BitableBool形式）
             /// </summary>
             public void Deconstruct(
-                out CharacterSide targetType,
+                out CharacterBelong targetType,
                 out CharacterFeature targetFeature,
                 out bool isAndFeatureCheck,
                 out SpecialEffect targetEffect,
@@ -1512,7 +1530,7 @@ namespace CharacterController.StatusData
             /// <summary>
             /// デフォルトのキャラクターの所属
             /// </summary>
-            public CharacterSide initialBelong;
+            public CharacterBelong initialBelong;
         }
 
         /// <summary>

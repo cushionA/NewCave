@@ -1093,7 +1093,7 @@ namespace TestScript.SOATest
             /// 個別パラメータを受け取るコンストラクタ
             /// </summary>
             public TargetFilter(
-                BrainStatus.CharacterSide targetType,
+                BrainStatus.CharacterBelong targetType,
                 BrainStatus.CharacterFeature targetFeature,
                 BrainStatus.BitableBool isAndFeatureCheck,
                 BrainStatus.SpecialEffect targetEffect,

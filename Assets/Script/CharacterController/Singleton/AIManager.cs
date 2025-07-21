@@ -1,6 +1,8 @@
 using CharacterController.Collections;
 using CharacterController.StatusData;
+using Rewired;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Collections;
@@ -10,6 +12,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using static CharacterController.BaseController;
 using static CharacterController.StatusData.BrainStatus;
+using static SensorSystem;
 
 namespace CharacterController
 {
@@ -28,7 +31,7 @@ namespace CharacterController
         /// 行動に応じてフラグを立て、そのキャラの所属によって解釈が変わる。
         /// </summary>
         [Flags]
-        public enum BrainEventFlagType
+        public enum BrainEventFlagType : byte
         {
             None = 0,  // フラグなしの状態を表す基本値
             大ダメージを与えた = 1 << 0,   // 相手に大きなダメージを与えた
@@ -37,6 +40,7 @@ namespace CharacterController
             支援を使用 = 1 << 3,         // 支援アビリティを使用した
                                     //誰かを倒した = 1 << 4,        // 敵または味方を倒した
                                     //指揮官を倒した = 1 << 5,      // 指揮官を倒した
+                                    // コメントアウト部分は指示による指定を撃破時にすればいい
             攻撃対象指定 = 1 << 4,        // 指揮官による攻撃対象の指定
             威圧 = 1 << 5,//威圧状態だと敵が怖がる？ これはバッドステータスでもいいとは思う
         }
@@ -92,11 +96,134 @@ namespace CharacterController
 
         }
 
+        /// <summary>
+        /// 各キャラクターのセンサーが tag 認識時に認識データに加える操作を定義するデリゲート。
+        /// </summary>
+        /// <param name="data">操作対象の認識データ</param>
+        public delegate RecognitionLog RecognizeTagDelegate(ref RecognitionData data, GameObject obj);
+
+        #region タグ設定
+
+        /// <summary>
+        /// ゲーム内で使用するタグの文字列定数を管理するクラス
+        /// 全てのタグ文字列はここで一元管理される
+        /// </summary>
+        public static class TagConstants
+        {
+            // ================================
+            // オブジェクトタグ定数
+            // ================================
+
+            /// <summary>キャラクターを示すタグ</summary>
+            public const string CHARACTER = "Character";
+
+            /// <summary>アイテムオブジェクトを示すタグ(装備品、消費アイテムなど)</summary>
+            public const string ITEM = "Item";
+
+            /// <summary>危険物を示すタグ(火薬の箱など)</summary>
+            public const string HAZARD = "Hazard";
+
+            /// <summary>攻撃の投射物を示すタグ</summary>
+            public const string SHOOT = "Shoot";
+
+            /// <summary>支援エリア示すタグ</summary>
+            public const string BUFF_AREA = "BuffArea";
+
+            /// <summary>弱体エリア示すタグ</summary>
+            public const string DEBUFF_AREA = "DebuffArea";
+
+            /// <summary>破壊可能オブジェクトを示すタグ(箱、壁、バリケードなど)</summary>
+            public const string DESTRUCTIBLE = "Destructible";
+
+            // ================================
+            // 地形・環境タグ定数
+            // ================================
+
+            /// <summary>水域を示すタグ(川、湖、海など)</summary>
+            public const string WATER = "Water";
+
+            /// <summary>崖やすり抜けて登れるポイントを示すタグ(よじ登れる地形)</summary>
+            public const string ClimbPoint = "ClimbPoint";
+
+        }
+
+        #endregion
+
         #endregion 定義
+
+        #region 定数
+
+        public readonly Dictionary<string, RecognizeTagDelegate> recognizeTagAction = new Dictionary<string, RecognizeTagDelegate>
+        {
+            // オブジェクトタグ
+    { TagConstants.CHARACTER, (ref RecognitionData data, GameObject obj) => {
+        
+        // 所属を取得してキャラの情報を反映する。
+        CharacterBelong belong = AIManager.instance.characterDataDictionary.GetBelong(obj);
+
+        // 所属によって処理が分岐
+        switch (belong)
+    {
+        case CharacterBelong.プレイヤー:
+         data.recognizeObject |= RecognizeObjectType.プレイヤー側キャラ;
+         return new RecognitionLog(obj, RecognizeObjectType.プレイヤー側キャラ);
+        case CharacterBelong.魔物:
+         data.recognizeObject |= RecognizeObjectType.魔物側キャラ;
+         return new RecognitionLog(obj, RecognizeObjectType.魔物側キャラ);
+        default:
+        data.recognizeObject |= RecognizeObjectType.中立側キャラ;
+        return new RecognitionLog(obj, RecognizeObjectType.中立側キャラ);
+    }
+    } },
+    { TagConstants.ITEM, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.アイテム;
+        return new RecognitionLog(obj, RecognizeObjectType.アイテム);
+    } },
+    { TagConstants.HAZARD, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.危険物;
+        return new RecognitionLog(obj, RecognizeObjectType.危険物);
+    } },
+    { TagConstants.SHOOT, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.飛び道具攻撃;
+        return new RecognitionLog(obj, RecognizeObjectType.飛び道具攻撃);
+    } },
+    { TagConstants.BUFF_AREA, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.バフエリア;
+        return new RecognitionLog(obj, RecognizeObjectType.バフエリア);
+    } },
+    { TagConstants.DEBUFF_AREA, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.デバフエリア;
+        return new RecognitionLog(obj, RecognizeObjectType.デバフエリア);
+    } },
+    { TagConstants.DESTRUCTIBLE, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.破壊可能オブジェクト;
+        return new RecognitionLog(obj, RecognizeObjectType.破壊可能オブジェクト);
+    } },
+    
+    // 地形・環境タグ
+    { TagConstants.WATER, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.水場;
+        return new RecognitionLog(obj, RecognizeObjectType.水場);
+    } },
+    { TagConstants.ClimbPoint, (ref RecognitionData data, GameObject obj) => {
+        data.recognizeObject |= RecognizeObjectType.よじ登りポイント;
+        return new RecognitionLog(obj, RecognizeObjectType.よじ登りポイント);
+    } }
+};
+
+        #endregion
+
+        #region フィールド
+
+        /// <summary>
+        /// キャラデータの管理用データ構造
+        /// </summary>
+        public CharacterStatusList brainStatusList;
 
         /// <summary>
         /// シングルトンのインスタンス。
         /// </summary>
+        [HideInInspector]
         public static AIManager instance;
 
         /// <summary>
@@ -105,46 +232,65 @@ namespace CharacterController
         /// 座標だけはIJobParallelForTransformで取得する？　せっかくだしLocalScale（＝キャラの向き）まで取っておくといいかも。<>br/>
         /// 向きなんて方向転換した時にデータ書き換えればいいだけかも
         /// </summary>
+        [HideInInspector]
         public SoACharaDataDic characterDataDictionary;
 
         /// <summary>
         /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。<br/>
         /// キャラデータのチーム設定と一緒に使う<br/>
         /// </summary>
-        public NativeArray<int> relationMap = new(3, Allocator.Persistent);
+        [HideInInspector]
+        public NativeArray<int> relationMap;
 
         /// <summary>
         /// 陣営ごとに設定されたヘイト値。<br/>
         /// ハッシュキーにはゲームオブジェクトのハッシュ値とチームの情報を渡す<br/>
         /// (チーム値,ハッシュ値)という形式<br/>
         /// </summary>
-        public NativeHashMap<int2, int> teamHate = new(7, Allocator.Persistent);
+        [HideInInspector]
+        public NativeHashMap<int2, int> teamHate;
 
         /// <summary>
         /// 個人用のヘイト値。<br/>
         /// ハッシュキーにはゲームオブジェクトのハッシュ値と相手のハッシュを渡す<br/>
         /// (自分のハッシュ,相手のハッシュ値)という形式<br/>
         /// </summary>
-        public NativeHashMap<int2, int> personalHate = new(7, Allocator.Persistent);
+        [HideInInspector]
+        public NativeHashMap<int2, int> personalHate;
 
         /// <summary>
         /// AIのイベントを受け付ける入れ物。
         /// 時間管理のために使う。
         /// Jobシステムで一括で時間見るか、普通にループするか（イベントはそんなに数がなさそうだし普通が速いかも）
         /// </summary>
-        public UnsafeList<BrainEventContainer> eventContainer = new(7, Allocator.Persistent);
+        [HideInInspector]
+        public UnsafeList<BrainEventContainer> eventContainer;
 
         /// <summary>
         /// 行動決定データ。
         /// Jobの書き込み先で、ターゲット変更の反映とかも全部はいってる。<br/>
         /// これを受け取ってキャラクターが行動する。
         /// </summary>
-        public UnsafeList<MovementInfo> judgeResult = new(130, Allocator.Persistent);
+        [HideInInspector]
+        public UnsafeList<MovementInfo> judgeResult;
 
         /// <summary>
-        /// キャラデータの管理用データ構造
+        /// オブジェクトタグのハンドル。
         /// </summary>
-        public CharacterStatusList brainStatusList;
+        [HideInInspector]
+        public ObjectTags objectTags;
+
+        /// <summary>
+        /// 地形タグのハンドル。
+        /// </summary>
+        [HideInInspector]
+        public TerrainTags terrainTags;
+
+
+
+        #endregion フィールド
+
+        #region 初期化
 
         /// <summary>
         /// 起動時にシングルトンのインスタンス作成。
@@ -161,6 +307,29 @@ namespace CharacterController
                 Destroy(this);
             }
         }
+
+        private void Start()
+        {
+            // キャラデータの初期化
+            this.characterDataDictionary = new SoACharaDataDic(130, Allocator.Persistent);
+
+            // AIのイベントコンテナを初期化
+            this.eventContainer = new UnsafeList<BrainEventContainer>(7, Allocator.Persistent);
+
+            // ジャッジ結果の初期化
+            this.judgeResult = new UnsafeList<MovementInfo>(130, Allocator.Persistent);
+
+            // キャラステータスリストの初期化
+            this.brainStatusList = Resources.Load<CharacterStatusList>("CharacterStatusList");
+
+            // タグハンドルの初期化
+            this.InitializeTagHandles();
+
+            // 関係マップの初期化
+            this.relationMap = new NativeArray<int>(3, Allocator.Persistent);
+        }
+
+        #endregion 初期化
 
         /// <summary>
         /// ここで毎フレームジョブを発行する。
@@ -186,7 +355,7 @@ namespace CharacterController
             // キャラデータを追加し、敵対する陣営のヘイトリストにも入れる。
             _ = this.characterDataDictionary.Add(status, addCharacter, hashCode);
 
-            for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
+            for ( int i = 0; i < (int)CharacterBelong.指定なし; i++ )
             {
                 if ( teamNum == i )
                 {
@@ -208,13 +377,13 @@ namespace CharacterController
         /// </summary>
         /// <param name="hashCode"></param>
         /// <param name="team"></param>
-        public void CharacterDead(int hashCode, CharacterSide team)
+        public void CharacterDead(int hashCode, CharacterBelong team)
         {
 
             // キャラデータを削除し、敵対する陣営のヘイトリストからも消す。
             _ = this.characterDataDictionary.RemoveByHash(hashCode);
 
-            for ( int i = 0; i < (int)CharacterSide.指定なし; i++ )
+            for ( int i = 0; i < (int)CharacterBelong.指定なし; i++ )
             {
                 int2 checkTeam = new(i, hashCode);
 
@@ -263,6 +432,22 @@ namespace CharacterController
             Destroy(instance);
         }
 
+        #region 内部メソッド
+
+        /// <summary>
+        /// タグハンドルの初期化
+        /// ゲーム開始時に一度だけ実行される
+        /// </summary>
+        private void InitializeTagHandles()
+        {
+            objectTags = new ObjectTags();
+            terrainTags = new TerrainTags();
+            Debug.Log("AIManager: TagHandle初期化完了");
+        }
+
+        #endregion
+
+
         /// <summary>
         /// 毎フレームジョブを実行する。
         /// </summary>
@@ -270,15 +455,15 @@ namespace CharacterController
         {
 
             (UnsafeList<BrainStatus.CharacterBaseInfo> characterBaseInfo,
+                             UnsafeList<BrainStatus.SolidData> solidData,
              UnsafeList<BrainStatus.CharacterAtkStatus> characterAtkStatus,
              UnsafeList<BrainStatus.CharacterDefStatus> characterDefStatus,
-             UnsafeList<BrainStatus.SolidData> solidData,
              UnsafeList<BrainStatus.CharacterStateInfo> characterStateInfo,
              UnsafeList<BrainStatus.MoveStatus> moveStatus,
-             UnsafeList<BrainStatus.CharacterColdLog> coldLog) = this.characterDataDictionary;
+             UnsafeList<BrainStatus.CharacterColdLog> coldLog, UnsafeList<RecognitionData> recognitions) = this.characterDataDictionary;
 
             JobAI brainJob = new((
-                characterBaseInfo, characterAtkStatus, characterDefStatus, solidData, characterStateInfo, moveStatus, coldLog),
+                characterBaseInfo, characterAtkStatus, characterDefStatus, solidData, characterStateInfo, moveStatus, coldLog, recognitions),
                 this.personalHate,
                 this.teamHate,
                 this.judgeResult,
