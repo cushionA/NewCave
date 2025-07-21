@@ -112,7 +112,7 @@ namespace CharacterController
             {
                 // 判断情報をキャラデータに反映する。
                 // 時間に関してはゲームマネージャー実装後にマネージャーからとるように変更するよ。
-                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, moveState, result == JudgeResult.新しく判断をした ? actNum : -1, 0);
+                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, this.moveState, this.result == JudgeResult.新しく判断をした ? this.actNum : -1, 0);
             }
 
             /// <summary>

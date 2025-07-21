@@ -73,6 +73,12 @@ namespace CharacterController
         public UnsafeList<CharacterColdLog> _coldLog;
 
         /// <summary>
+        /// 参照頻度の低いデータ
+        /// </summary>
+        [ReadOnly]
+        public UnsafeList<RecognitionData> _recognizeData;
+
+        /// <summary>
         /// キャラごとの個人ヘイト管理用
         /// 自分のハッシュと相手のハッシュをキーに値を持つ。
         /// </summary>
@@ -122,7 +128,8 @@ namespace CharacterController
         UnsafeList<SolidData> solidData,
         UnsafeList<CharacterStateInfo> characterStateInfo,
         UnsafeList<MoveStatus> moveStatus,
-        UnsafeList<CharacterColdLog> coldLog
+        UnsafeList<CharacterColdLog> coldLog,
+            UnsafeList<RecognitionData> recognizeData
         ) dataLists, NativeHashMap<int2, int> pHate, NativeHashMap<int2, int> teamHate, UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult,
             NativeArray<int> relationMap, NativeArray<BrainDataForJob> brainArray, float nowTime)
         {
@@ -134,6 +141,7 @@ namespace CharacterController
             this._characterStateInfo = dataLists.characterStateInfo;
             this._moveStatus = dataLists.moveStatus;
             this._coldLog = dataLists.coldLog;
+            this._recognizeData = dataLists.recognizeData;
 
             // 個別パラメータをフィールドに代入
             this.pHate = pHate;
@@ -183,6 +191,7 @@ namespace CharacterController
             }
 
             // クールタイムの判断を行う
+            // 条件は行動につき一つ
             if ( this.nowTime - this._coldLog[index].lastJudgeTime < this._coldLog[index].nowCoolTime.coolTime )
             {
                 // 時間がダメで、クールタイムのスキップ条件を満たしていなければスキップする。
@@ -217,20 +226,8 @@ namespace CharacterController
 
             // 行動条件の中で前提を満たしたものを取得するビット
             // なお、実際の判断時により優先的な条件が満たされた場合は上位ビットはまとめて消す。
-            int enableCondition = (1 << brainData.behaviorSetting.Length) - 1;
+            int selectMoveCondition = (1 << brainData.behaviorSetting.Length) - 1;
 
-            // クールタイム中ならスキップ判定を行う
-            for ( int i = 0; i < brainData.behaviorSetting.Length - 1; i++ )
-            {
-
-                CoolTimeData skipData = brainData.behaviorSetting[i].coolTimeData;
-
-                // スキップ条件を解釈して判断
-                if ( skipData.skipCondition == SkipJudgeCondition.条件なし || this.IsCoolTimeSkip(skipData, index) == 1 )
-                {
-                    enableCondition |= 1 << i;
-                }
-            }
 
             // 条件を満たした行動の中で最も優先的なもの。
             // 初期値は最後の条件、つまり条件なしの補欠条件
@@ -247,7 +244,7 @@ namespace CharacterController
 
                 // 行動判断。
                 // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
-                if ( enableCondition != 0 )
+                if ( selectMoveCondition != 0 )
                 {
                     for ( int j = 0; j < brainData.behaviorSetting.Length - 1; j++ )
                     {
@@ -262,7 +259,7 @@ namespace CharacterController
                             int mask = (1 << j) - 1;
 
                             // マスクと元の値の論理積を取ることで上位ビットをクリア
-                            enableCondition = enableCondition & mask;
+                            selectMoveCondition = selectMoveCondition & mask;
                             break;
                         }
                     }
@@ -272,7 +269,6 @@ namespace CharacterController
                 {
                     break;
                 }
-
             }
 
             // その後、二回目のループで条件に当てはまるキャラを探す。
@@ -407,7 +403,7 @@ namespace CharacterController
             bool result = true;
 
             // フィルター通過しないなら戻る。
-            if ( condition.filter.IsPassFilter(this._solidData[targetIndex], this._characterStateInfo[targetIndex]) == 0 )
+            if ( condition.filter.IsPassFilter(this._solidData[targetIndex], this._characterStateInfo[targetIndex], this._characterBaseInfo[myIndex].nowPosition, this._characterBaseInfo[targetIndex].nowPosition) == 0 )
             {
                 return false;
             }
@@ -462,7 +458,7 @@ namespace CharacterController
                     int judgeDist = condition.judgeValue * condition.judgeValue;
 
                     // 今の距離の二乗。
-                    int distance = (int)math.distancesq(this._characterBaseInfo[targetIndex].nowPosition, this._characterBaseInfo[targetIndex].nowPosition);
+                    int distance = (int)math.distancesq(this._characterBaseInfo[myIndex].nowPosition, this._characterBaseInfo[targetIndex].nowPosition);
 
                     // 通常は以上、逆の場合は以下
                     result = condition.isInvert == BitableBool.FALSE ? distance >= judgeDist : distance <= judgeDist;
@@ -504,6 +500,9 @@ namespace CharacterController
 
             int index = -1;
 
+            // 自分の位置を取得
+            float2 myPosition = this._characterBaseInfo[myIndex].nowPosition;
+
             TargetSelectCondition condition = judgeData.judgeCondition;
 
             int isInvert;
@@ -522,10 +521,7 @@ namespace CharacterController
                 score = int.MinValue;
             }
 
-            //if ( judgeData.judgeCondition == TargetSelectCondition.高度 && isInvert == 1 )
-            //{
-            //    Debug.Log($" 逆{judgeData.isInvert == BitableBool.TRUE} スコア初期{score}");
-            //}
+
 
             switch ( condition )
             {
@@ -533,7 +529,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -569,7 +565,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -603,7 +599,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -636,7 +632,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterBaseInfo.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -669,7 +665,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -702,7 +698,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -735,7 +731,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -768,7 +764,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -801,7 +797,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -834,7 +830,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -867,7 +863,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -900,7 +896,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -933,7 +929,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterAtkStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -966,7 +962,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -999,7 +995,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -1032,7 +1028,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -1065,7 +1061,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -1098,7 +1094,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -1131,7 +1127,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -1164,7 +1160,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._characterDefStatus.Length; i++ )
                     {
                         // フィルターをパスできなければ戻る。
-                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
@@ -1193,45 +1189,6 @@ namespace CharacterController
 
                     return index;
 
-                case TargetSelectCondition.距離:
-
-                    // 自分の位置をキャッシュ
-                    float2 myPosition = this._characterBaseInfo[myIndex].nowPosition;
-
-                    for ( int i = 0; i < this._characterBaseInfo.Length; i++ )
-                    {
-                        // 自分自身か、フィルターをパスできなければ戻る。
-                        if ( myIndex == i || judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
-                        {
-                            continue;
-                        }
-                        // 2乗距離で遠近判断
-                        // floatだから誤差が少し心配だね
-                        float distance = Unity.Mathematics.math.distancesq(myPosition, this._characterBaseInfo[i].nowPosition);
-
-                        // 一番高いキャラクターを求める。
-                        if ( isInvert == 0 )
-                        {
-                            if ( distance > score )
-                            {
-                                score = (int)distance;
-                                index = i;
-                            }
-                        }
-
-                        // 一番低いキャラクターを求める。
-                        else
-                        {
-                            if ( distance < score )
-                            {
-                                score = (int)distance;
-                                index = i;
-                            }
-                        }
-                    }
-
-                    return index;
-
                 case TargetSelectCondition.自分:
                     return myIndex;
 
@@ -1245,7 +1202,7 @@ namespace CharacterController
                     for ( int i = 0; i < this._solidData.Length; i++ )
                     {
                         // 自分自身か、フィルターをパスできなければ戻る。
-                        if ( i == index || judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i]) == 0 )
+                        if ( i == index || judgeData.filter.IsPassFilter(this._solidData[i], this._characterStateInfo[i], myPosition, this._characterBaseInfo[i].nowPosition) == 0 )
                         {
                             continue;
                         }
