@@ -5,7 +5,9 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
+using static CharacterController.BaseController;
 using static CharacterController.StatusData.BrainStatus;
+using static CharacterController.StatusData.BrainStatus.TriggerJudgeData;
 using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
 
 namespace CharacterController
@@ -24,11 +26,6 @@ namespace CharacterController
     )]
     public struct JobAI : IJobParallelFor
     {
-        /// <summary>
-        /// 読み取り専用のチームごとの全体ヘイト
-        /// </summary>
-        [ReadOnly]
-        public NativeHashMap<int2, int> teamHate;
 
         /// <summary>
         /// キャラクターの基本情報
@@ -79,13 +76,6 @@ namespace CharacterController
         public UnsafeList<RecognitionData> _recognizeData;
 
         /// <summary>
-        /// キャラごとの個人ヘイト管理用
-        /// 自分のハッシュと相手のハッシュをキーに値を持つ。
-        /// </summary>
-        [ReadOnly]
-        public NativeHashMap<int2, int> pHate;
-
-        /// <summary>
         /// 現在時間
         /// </summary>
         [ReadOnly]
@@ -107,10 +97,10 @@ namespace CharacterController
 
         /// <summary>
         /// キャラのAIの設定。
-        /// 状態に基づいて最初にデータを一つだけ抜く。
+        /// キャラIDとモードからAIの設定をNativeArrayで抜き取れる。
         /// </summary>
         [ReadOnly]
-        public NativeArray<BrainDataForJob> brainArray;
+        public BrainDataForJob brainArray;
 
         /// <summary>
         /// コンストラクタ
@@ -130,8 +120,8 @@ namespace CharacterController
         UnsafeList<MoveStatus> moveStatus,
         UnsafeList<CharacterColdLog> coldLog,
             UnsafeList<RecognitionData> recognizeData
-        ) dataLists, NativeHashMap<int2, int> pHate, NativeHashMap<int2, int> teamHate, UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult,
-            NativeArray<int> relationMap, NativeArray<BrainDataForJob> brainArray, float nowTime)
+        ) dataLists, UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult,
+            NativeArray<int> relationMap, BrainDataForJob brainArray, float nowTime)
         {
             // タプルから各データリストを展開してフィールドに代入
             this._characterBaseInfo = dataLists.characterBaseInfo;
@@ -143,9 +133,6 @@ namespace CharacterController
             this._coldLog = dataLists.coldLog;
             this._recognizeData = dataLists.recognizeData;
 
-            // 個別パラメータをフィールドに代入
-            this.pHate = pHate;
-            this.teamHate = teamHate;
             this.judgeResult = judgeResult;
             this.relationMap = relationMap;
             this.brainArray = brainArray;
@@ -160,166 +147,226 @@ namespace CharacterController
         {
 
             // 結果の構造体を作成。
-            CharacterController.BaseController.MovementInfo resultData = new();
+            MovementInfo resultData = new();
 
             // 現在の行動のステートを数値に変換
-            int nowMode = (int)this._characterStateInfo[index].actState;
+            byte nowMode = this._coldLog[index].nowMode;
 
-            BrainSettingForJob brainData = this.brainArray[this._coldLog[index].characterID - 1].brainSetting[nowMode];
+            // キャラのIDを取得
+            byte characterID = this._coldLog[index].characterID;
 
-            // インターバルをまとめて取得
-            // xが行動、yが移動判断
-            float2 intervals = this.brainArray[this._coldLog[index].characterID - 1].GetInterval();
+            // 前回判断からの経過時間をまとめて取得
+            // xがターゲット判断でyが行動判断、zが移動判断の経過時間。
+            // wがトリガー判断の経過時間 
+            float4 passTime = nowTime - this._coldLog[index].lastJudgeTime;
 
-            // 判断時間が経過したかを確認。
-            // 経過してないなら処理しない。
-            // あるいはターゲット消えた場合も判定したい。チームヘイトに含まれてなければ。それだと味方がヘイトの時どうするの。
-            // キャラ死亡時に全キャラに対しターゲットしてるかどうかを確認するようにしよう。で、ターゲットだったら前回判断時間をマイナスにする。
-            if ( this.nowTime - this._coldLog[index].lastJudgeTime < intervals.x )
+            // キャラの判断間隔をまとめて取得
+            // xがターゲット判断でyが行動判断、zが移動判断の間隔。
+            float3 judgeIntervals = this.brainArray.GetIntervalData(characterID, nowMode);
+
+            // 変更を記録するフラグ
+            // xがターゲット判断でyが行動判断、zが移動判断
+            // wがモードチェンジ
+            bool4 isJudged = new bool4(false, false, false, false);
+
+            // 優先的に判断するターゲット条件の番号。
+            // トリガーイベント等で指定がある。
+            int priorityTargetCondition = -1;
+
+            // 設定されたターゲットのハッシュコード
+            int nextTargetIndex = -1;
+
+            #region トリガーイベント判断
+
+            // トリガー行動判断を行うか
+            if ( passTime.w >= 0.5f )
             {
-                resultData.result = this.nowTime - this._coldLog[index].lastJudgeTime < intervals.y ? BaseController.JudgeResult.方向転換をした : BaseController.JudgeResult.何もなし;
+                NativeArray<TriggerJudgeData> triggerConditions = this.brainArray.GetTriggerJudgeDataArray(characterID, nowMode);
 
-                // 移動方向判断だけはする。
-                //　正確には距離判定。
-                // ハッシュ値持ってんだからジョブから出た後でやろう。
-                // Resultを解釈して
 
-                // 結果を設定。
-                this.judgeResult[index] = resultData;
+                // 条件を満たした行動の中で最も優先的なもの。
+                // 初期値は-1、つまり何もトリガーされていない状態。
+                int selectTrigger = -1;
+
+                // 判断の必要がある条件をビットで保持
+                int enableTriggerCondition = (1 << triggerConditions.Length) - 1;
+
+                // キャラデータを確認する。
+                for ( int i = 0; i < this._solidData.Length; i++ )
+                {
+
+                    // トリガー判断
+                    if ( enableTriggerCondition != 0 )
+                    {
+                        for ( int j = 0; j < triggerConditions.Length - 1; j++ )
+                        {
+                            // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない。
+                            if ( this.CheckTriggerCondition(triggerConditions[j], index, i) )
+                            {
+                                selectTrigger = j;
+
+                                // enableConditionのbitも消す。
+                                // i桁目までのビットをすべて1にするマスクを作成
+                                // (1 << (i + 1)) - 1 は 0から i-1桁目までのビットがすべて1
+                                int mask = (1 << j) - 1;
+
+                                // マスクと元の値の論理積を取ることで上位ビットをクリア
+                                enableTriggerCondition = enableTriggerCondition & mask;
+                                break;
+                            }
+                        }
+                    }
+                    // 条件満たしたらループ終わり。
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                // 条件を満たしたトリガーがあればトリガーイベントを起こす
+                if ( selectTrigger != -1 )
+                {
+                    switch ( triggerConditions[selectTrigger].triggerEventType )
+                    {
+                        case TriggerEventType.モード変更:
+                            // モード変更の条件を満たした場合モードを変更する
+                            isJudged.w = true;
+                            nowMode = triggerConditions[selectTrigger].triggerNum;
+                            break;
+                        case TriggerEventType.ターゲット変更:
+                            passTime.x = judgeIntervals.x + 1;// インターバルの時間以上の値を入れて判断するように
+
+                            // 優先のターゲット条件を設定
+                            priorityTargetCondition = triggerConditions[selectTrigger].triggerNum;
+                            break;
+                        case TriggerEventType.個別行動:
+                            // 個別行動の条件を満たした場合
+                            isJudged.y = true;
+                            resultData.actNum = triggerConditions[selectTrigger].triggerNum;
+                            break;
+                    }
+                }
+
 
                 return;
             }
 
-            // クールタイムの判断を行う
-            // 条件は行動につき一つ
-            if ( this.nowTime - this._coldLog[index].lastJudgeTime < this._coldLog[index].nowCoolTime.coolTime )
-            {
-                // 時間がダメで、クールタイムのスキップ条件を満たしていなければスキップする。
-                if ( this.IsCoolTimeSkip(this._coldLog[index].nowCoolTime, index) != 1 )
-                {
-                    resultData.result = BaseController.JudgeResult.方向転換をした;
+            #endregion トリガーイベント判断
 
-                    // 結果を設定。
-                    this.judgeResult[index] = resultData;
+            #region ターゲット判断
+
+            // 時間経過かターゲット判断を行う状態で、ターゲット指定がされていなければ
+            if ( (passTime.x >= judgeIntervals.x || (_characterStateInfo[index].actState & ActState.ターゲット変更) > 0)
+                && (_characterStateInfo[index].brainEvent & AIManager.BrainEventFlagType.攻撃対象指定) == 0 )
+            {
+                // ターゲット条件を取得
+                NativeArray<TargetJudgeData> targetConditions = this.brainArray.GetTargetJudgeDataArray(characterID, nowMode);
+
+                // 優先的なターゲット条件が指定されている場合はそれを優先して判断する
+                if ( priorityTargetCondition != -1 )
+                {
+
+                    // 判断後、優先条件は白紙に戻す
+                    priorityTargetCondition = -1;
                 }
+
+                // 優先条件がない場合、あるいは優先でターゲットが見つからなかった場合は通常の判断を行う。
+                if ( nextTargetIndex == -1 )
+                {
+                    for ( int i = 0; i < targetConditions.Length; i++ )
+                    {
+                        // 優先条件はすでに使ってるので飛ばす。
+                        if ( i == priorityTargetCondition )
+                        {
+                            continue;
+                        }
+                    }
+                }
+
+                // もし-1の場合は自分をターゲットにする
+                nextTargetIndex = nextTargetIndex == -1 ? index : nextTargetIndex;
+
+                // 新ターゲットを設定。
+                resultData.targetHash = _coldLog[nextTargetIndex].hashCode;
             }
 
-            // characterData[index].brainData[nowMode].judgeInterval みたいな値は何回も使うなら一時変数に保存していい。
+            #endregion ターゲット判断
 
-            // まず判断時間の経過を確認
-            // 次に線形探索で行動間隔の確認を行いつつ、敵にはヘイト判断も行う。
-            // 全ての行動条件を確認しつつ、どの条件が確定したかを配列に入れる
-            // ちなみに0、つまり一番優先度が高い設定が当てはまった場合は有無を言わさずループ中断。
-            // 逆に何も当てはまらなかった場合は補欠条件が実行。
-            // ちなみに逃走、とか支援、のモードをあんまり生かせてないよな。
-            // モードごとに条件設定できるようにするか。
-            // で、条件がいらないモードについては行動判断を省く
+            #region 行動判断
 
-            // 確認対象の条件はビット値で保存。
-            // そしてビットの設定がある条件のみ確認する。
-            // 条件満たしたらビットは消す。
-            // さらに、1とか2番目とかのより優先度が高い条件が付いたらそれ以下の条件は全部消す。
-            // で、現段階で一番優先度が高い満たした条件を保存しておく
-            // その状態で最後まで走査してヘイト値設定も完了する。
-            // ちなみにヘイト値設定は自分がヘイト持ってる相手のヘイトを足した値を確認するだけだろ
-            // ヘイト減少の仕組み考えないとな。30パーセントずつ減らす？　
-
-            // 行動条件の中で前提を満たしたものを取得するビット
-            // なお、実際の判断時により優先的な条件が満たされた場合は上位ビットはまとめて消す。
-            int selectMoveCondition = (1 << brainData.behaviorSetting.Length) - 1;
-
-
-            // 条件を満たした行動の中で最も優先的なもの。
-            // 初期値は最後の条件、つまり条件なしの補欠条件
-            int selectMove = brainData.behaviorSetting.Length - 1;
-
-            // キャラデータを確認する。
-            for ( int i = 0; i < this._solidData.Length; i++ )
+            // 時間経過していて、かつトリガーイベントで行動設定がされてないなら
+            if ( !isJudged.y && passTime.x >= judgeIntervals.y )
             {
-                // 自分はスキップ
-                if ( index == i )
+                // クールタイムであるかのフラグ。
+                bool isCoolTime = false;
+
+                // クールタイム中ならクールタイムの判断を行う
+                // 条件は行動につき一つ
+                // ちなみにクールタイム中でもクールタイムじゃない行動はあるので判定自体はするよ。
+                if ( passTime.y < this._coldLog[index].nowCoolTime.coolTime )
                 {
-                    continue;
+                    // クールタイムのスキップ条件を満たしているかどうか
+                    isCoolTime = (this.IsCoolTimeSkip(this._coldLog[index].nowCoolTime, index) == 0);
                 }
 
-                // 行動判断。
-                // ここはスイッチ文使おう。連続するInt値ならコンパイラがジャンプテーブル作ってくれるので
-                if ( selectMoveCondition != 0 )
+                // 行動判断のデータを取得
+                NativeArray<ActJudgeData> moveConditions = this.brainArray.GetActJudgeDataArray(characterID, nowMode);
+
+                int selectMove = -1;
+
+                for ( int i = 0; i < moveConditions.Length; i++ )
                 {
-                    for ( int j = 0; j < brainData.behaviorSetting.Length - 1; j++ )
+                    // 実行可能性をクリアしたなら判断を実施
+                    if ( moveConditions[i].actRatio == 100 || moveConditions[i].actRatio < GetRandomZeroToHandred() )
                     {
-                        // ある条件満たしたらbreakして、以降はそれ以下の条件もう見ない。
-                        if ( this.CheckActCondition(brainData.behaviorSetting[j].actCondition, index, i) )
+                        if ( IsActionConditionSatisfied(nextTargetIndex, moveConditions[i], isCoolTime) )
                         {
-                            selectMove = j;
-
-                            // enableConditionのbitも消す。
-                            // i桁目までのビットをすべて1にするマスクを作成
-                            // (1 << (i + 1)) - 1 は 0から i-1桁目までのビットがすべて1
-                            int mask = (1 << j) - 1;
-
-                            // マスクと元の値の論理積を取ることで上位ビットをクリア
-                            selectMoveCondition = selectMoveCondition & mask;
+                            // クールタイムスキップ条件を満たしているので、行動を実行する。
+                            selectMove = moveConditions[i].triggerNum;
+                            isJudged.y = true;
                             break;
                         }
                     }
                 }
-                // 条件満たしたらループ終わり。
-                else
+
+                // 条件を満たした行動があれば行動を起こす
+                if ( selectMove != -1 )
                 {
-                    break;
+                    switch ( moveConditions[selectMove].triggerEventType )
+                    {
+                        case TriggerEventType.モード変更:
+                            // モード変更の条件を満たした場合モードを変更する
+                            isJudged.w = true;
+                            nowMode = moveConditions[selectMove].triggerNum;
+                            isJudged.x = false; // ターゲット変更は行われていない
+                            isJudged.z = false; // 移動判断は行われていない
+                            isJudged.y = false; // 行動判断は行われていない。
+                            break;
+                        case TriggerEventType.ターゲット変更:
+                            // 再度優先ターゲット条件を設定
+                            priorityTargetCondition = moveConditions[selectMove].triggerNum;
+                            isJudged.x = true; // ターゲット変更は行われた
+                            isJudged.z = false; // 移動判断は行われていない
+                            isJudged.y = false; // 行動判断は行われていない。
+                            break;
+                        case TriggerEventType.個別行動:
+                            // 個別行動の条件を満たした場合
+                            isJudged.y = true;
+                            resultData.actNum = moveConditions[selectMove].triggerNum;
+                            break;
+                    }
                 }
             }
 
-            // その後、二回目のループで条件に当てはまるキャラを探す。
-            // 二回目で済むかな？　判断条件の数だけ探さないとダメじゃない？
-            // 準備用のジョブで一番攻撃力が高い/低い、とかのキャラを陣営ごとに探しとくべきじゃない？
-            // それは明確にやるべき。
-            // いや、でも対象を所属や特徴でフィルタリングするならやっぱりダメかも
-            // 大人しく条件ごとに線形するか。
-            // 救いとなるのは、
-
-            // 距離に関しては別処理を実装すると決めた。
-            // kd木や空間分割データ構造とかあるみたいだけど、更新負荷的にいまいち実用的じゃない気がする。
-            // 最適な敵数の範囲が異なるから
-            // それよりは近距離の物理センサーで数秒に一回検査した方がいい。Nonalloc系のサーチでバッファに stack allocも使おう
-            // 敵百体以上増やすならトリガーはまずいかも
-
-            // 最も条件に近いターゲットを確認する。
-            // 比較用初期値はInvertによって変動。
-            TargetJudgeData targetJudgeData = brainData.behaviorSetting[selectMove].targetCondition;
-
-            // 新しいターゲットのハッシュ
-            int newTargetHash;
-
-            // 状態変更の場合ここで戻る。
-            if ( targetJudgeData.judgeCondition == TargetSelectCondition.不要_状態変更 )
+            // 優先的なターゲット条件が指定されている場合はそれを優先して判断する
+            if ( priorityTargetCondition != -1 )
             {
-                // 指定状態に移行
-                resultData.result = CharacterController.BaseController.JudgeResult.状態を変更した;
-                resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
 
-                // 判断結果を設定。
-                this.judgeResult[index] = resultData;
-                return;
+                // 判断後、優先条件は白紙に戻す
+                priorityTargetCondition = -1;
             }
 
-            // それ以外であればターゲットを判断
-
-            int tIndex = this.JudgeTargetByCondition(targetJudgeData, index);
-            resultData.result = CharacterController.BaseController.JudgeResult.新しく判断をした;
-
-            // ここでターゲット見つかってなければ待機に移行。
-            if ( tIndex < 0 )
-            {
-                // 待機に移行
-                resultData.actNum = (int)ActState.待機;
-                //  Debug.Log($"ターゲット判断失敗　行動番号{selectMove}");
-                this.judgeResult[index] = resultData;
-                return;
-            }
-
-            newTargetHash = this._coldLog[tIndex].hashCode;
+            #endregion 行動判断
 
             resultData.actNum = (int)targetJudgeData.useAttackOrHateNum;
             resultData.targetHash = newTargetHash;
@@ -337,7 +384,7 @@ namespace CharacterController
 
         }
 
-        #region スキップ条件判断
+        #region クールタイムスキップ条件判断メソッド
 
         /// <summary>
         /// SkipJudgeConditionに基づいて判定を行うメソッド
@@ -346,7 +393,7 @@ namespace CharacterController
         /// <param name="charaData">キャラクターデータ</param>
         /// <returns>条件に合致する場合は1、それ以外は0</returns>
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public int IsCoolTimeSkip(in CoolTimeData skipData, int myIndex)
+        private byte IsCoolTimeSkip(in CoolTimeData skipData, int myIndex)
         {
             SkipJudgeCondition condition = skipData.skipCondition;
             switch ( condition )
@@ -388,16 +435,18 @@ namespace CharacterController
             }
         }
 
-        #endregion スキップ条件判断
+        #endregion クールタイムスキップ条件判断メソッド
+
+        #region トリガーイベント判断メソッド
 
         /// <summary>
-        /// 行動判断の処理を隔離したメソッド
+        /// トリガーイベント判断の処理を隔離したメソッド
         /// </summary>
         /// <param name="conditions"></param>
         /// <param name="charaData"></param>
         /// <param name="nowHate"></param>
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public bool CheckActCondition(in ActJudgeData condition, int myIndex,
+        private bool CheckTriggerCondition(in TriggerJudgeData condition, int myIndex,
             int targetIndex)
         {
             bool result = true;
@@ -410,7 +459,7 @@ namespace CharacterController
 
             switch ( condition.judgeCondition )
             {
-                case ActJudgeCondition.指定のヘイト値の敵がいる時:
+                case ActTriggerCondition.指定のヘイト値の敵がいる時:
 
                     int targetHash = this._coldLog[targetIndex].hashCode;
                     int targetHate = 0;
@@ -434,7 +483,7 @@ namespace CharacterController
 
                     return result;
 
-                case ActJudgeCondition.HPが一定割合の対象がいる時:
+                case ActTriggerCondition.HPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
                     result = condition.isInvert == BitableBool.FALSE
@@ -443,7 +492,7 @@ namespace CharacterController
 
                     return result;
 
-                case ActJudgeCondition.MPが一定割合の対象がいる時:
+                case ActTriggerCondition.MPが一定割合の対象がいる時:
 
                     // 通常は以上、逆の場合は以下
                     result = condition.isInvert == BitableBool.FALSE
@@ -452,7 +501,7 @@ namespace CharacterController
 
                     return result;
 
-                case ActJudgeCondition.設定距離に対象がいる時:
+                case ActTriggerCondition.設定距離に対象がいる時:
 
                     // 二乗の距離で判定する。
                     int judgeDist = condition.judgeValue * condition.judgeValue;
@@ -465,7 +514,7 @@ namespace CharacterController
 
                     return result;
 
-                case ActJudgeCondition.特定の属性で攻撃する対象がいる時:
+                case ActTriggerCondition.特定の属性で攻撃する対象がいる時:
 
                     // 通常はいる時、逆の場合はいないとき
                     result = condition.isInvert == BitableBool.FALSE
@@ -474,7 +523,7 @@ namespace CharacterController
 
                     return result;
 
-                case ActJudgeCondition.特定の数の敵に狙われている時:
+                case ActTriggerCondition.特定の数の敵に狙われている時:
                     // 通常は以上、逆の場合は以下
                     result = condition.isInvert == BitableBool.FALSE
                         ? this._characterStateInfo[targetIndex].targetingCount >= condition.judgeValue
@@ -487,6 +536,8 @@ namespace CharacterController
             }
         }
 
+        #endregion トリガーイベント判断メソッド
+
         #region　ターゲット判断処理
 
         /// <summary>
@@ -495,7 +546,7 @@ namespace CharacterController
         /// <returns>返り値は行動ターゲットのインデックス</returns>
         // TargetConditionに基づいて判定を行うメソッド
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
-        public int JudgeTargetByCondition(in TargetJudgeData judgeData, int myIndex)
+        private int JudgeTargetByCondition(in TargetJudgeData judgeData, int myIndex)
         {
 
             int index = -1;
@@ -1197,7 +1248,7 @@ namespace CharacterController
                     // newTargetHash = characterData[i].hashCode;
                     return -1;
 
-                case TargetSelectCondition.指定なし_ヘイト値:
+                case TargetSelectCondition.指定なし_フィルターのみ:
                     // ターゲット選定ループ
                     for ( int i = 0; i < this._solidData.Length; i++ )
                     {
@@ -1256,6 +1307,19 @@ namespace CharacterController
 
         #endregion ターゲット判断処理
 
+        #region 行動判断メソッド
+
+        [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
+        private bool IsActionConditionSatisfied(int targetIndex, in ActJudgeData condition, bool isCoolTime)
+        {
+            // ターゲットが行動の条件を満たしているかを確認するメソッド。
+            // ここでは、actNumが行動番号、targetIndexがターゲットのインデックス、judgeDataが判断データを表す。
+            // 条件を満たしていればtrue、そうでなければfalseを返す。
+
+        }
+
+        #endregion 行動判断メソッド
+
         /// <summary>
         /// 二つのチームが敵対しているかをチェックするメソッド。
         /// </summary>
@@ -1267,6 +1331,16 @@ namespace CharacterController
         {
             return (this.relationMap[team1] & (1 << team2)) > 0;
         }
+
+        /// <summary>
+        /// ゼロから百の中で乱数を生成するメソッド。
+        /// </summary>
+        /// <returns></returns>
+        private int GetRandomZeroToHandred()
+        {
+
+        }
+
     }
 
 }

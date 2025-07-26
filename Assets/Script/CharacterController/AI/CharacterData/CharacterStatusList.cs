@@ -14,28 +14,27 @@ namespace CharacterController.StatusData
         public BrainStatus[] statusList;
 
         /// <summary>
-        /// 
+        /// 各キャラのモードごとのAIデータの配列を管理する構造体。
+        /// 直接は使わず部分配列を取ることで、Jobごとに必要なデータを取得する。
         /// </summary>
-        public NativeArray<BrainDataForJob> brainArray;
+        public BrainDataForJob brainArray;
 
         /// <summary>
-        /// 
-        /// </summary>
-        public NativeArray<HateSettingForJob> hateSetting;
-
-        /// <summary>
-        /// Job用に行動データの配列を作成。
+        /// Job用に行動データのモードごとのマッピング済み配列を作成。
         /// </summary>
         public void MakeBrainDataArray()
         {
-            this.brainArray = new NativeArray<BrainDataForJob>(this.statusList.Length, allocator: Allocator.Persistent);
-            this.hateSetting = new NativeArray<HateSettingForJob>(this.statusList.Length, allocator: Allocator.Persistent);
+            // キャラクターのステータスから、Job用に行動データの配列を作成する。
+            CharacterModeData[][] characterModeData = new CharacterModeData[this.statusList.Length][];
 
+            // 各キャラクターのモード設定を取得
             for ( int i = 0; i < this.statusList.Length; i++ )
             {
-                this.brainArray[i] = new BrainDataForJob(this.statusList[i].brainData, this.statusList[i].judgeInterval, this.statusList[i].moveJudgeInterval);
-                this.hateSetting[i] = new HateSettingForJob(this.statusList[i].hateCondition);
+                characterModeData[i] = this.statusList[i].characterModeSetting;
             }
+
+            // Job用のBrainDataForJobを作成
+            brainArray = new BrainDataForJob(characterModeData);
         }
 
         [ContextMenu("キャラクター並び替え")]

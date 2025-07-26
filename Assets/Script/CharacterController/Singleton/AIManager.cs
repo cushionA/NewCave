@@ -42,7 +42,6 @@ namespace CharacterController
                                     //指揮官を倒した = 1 << 5,      // 指揮官を倒した
                                     // コメントアウト部分は指示による指定を撃破時にすればいい
             攻撃対象指定 = 1 << 4,        // 指揮官による攻撃対象の指定
-            威圧 = 1 << 5,//威圧状態だと敵が怖がる？ これはバッドステータスでもいいとは思う
         }
 
         /// <summary>
@@ -153,6 +152,9 @@ namespace CharacterController
 
         #region 定数
 
+        /// <summary>
+        /// 認識データの更新用デリゲートの辞書。
+        /// </summary>
         public readonly Dictionary<string, RecognizeTagDelegate> recognizeTagAction = new Dictionary<string, RecognizeTagDelegate>
         {
             // オブジェクトタグ
@@ -182,10 +184,6 @@ namespace CharacterController
     { TagConstants.HAZARD, (ref RecognitionData data, GameObject obj) => {
         data.recognizeObject |= RecognizeObjectType.危険物;
         return new RecognitionLog(obj, RecognizeObjectType.危険物);
-    } },
-    { TagConstants.SHOOT, (ref RecognitionData data, GameObject obj) => {
-        data.recognizeObject |= RecognizeObjectType.飛び道具攻撃;
-        return new RecognitionLog(obj, RecognizeObjectType.飛び道具攻撃);
     } },
     { TagConstants.BUFF_AREA, (ref RecognitionData data, GameObject obj) => {
         data.recognizeObject |= RecognizeObjectType.バフエリア;
@@ -273,20 +271,6 @@ namespace CharacterController
         /// </summary>
         [HideInInspector]
         public UnsafeList<MovementInfo> judgeResult;
-
-        /// <summary>
-        /// オブジェクトタグのハンドル。
-        /// </summary>
-        [HideInInspector]
-        public ObjectTags objectTags;
-
-        /// <summary>
-        /// 地形タグのハンドル。
-        /// </summary>
-        [HideInInspector]
-        public TerrainTags terrainTags;
-
-
 
         #endregion フィールド
 
