@@ -29,6 +29,7 @@ namespace CharacterController
             モード変更した = 1 << 1,// この時は移動方向も変える
             ターゲット変更した = 1 << 2,
             行動を変更した = 1 << 3,
+            方向を変更した = 1 << 4,
         }
 
         /// <summary>
@@ -72,7 +73,7 @@ namespace CharacterController
             /// <summary>
             /// 現在のターゲットとの距離。マイナスもあるので方向でもある。
             /// </summary>
-            public float targetDirection;
+            public float targetDistance;
 
             /// <summary>
             /// 番号で行動を指定する。
@@ -96,13 +97,13 @@ namespace CharacterController
             /// デバッグ用。
             /// 選択した行動条件を設定する。
             /// </summary>
-            public int selectActCondition;
+            public byte selectActCondition;
 
             /// <summary>
             /// デバッグ用。
             /// 選択したターゲット選択条件を設定する。
             /// </summary>
-            public int selectTargetCondition;
+            public byte selectTargetCondition;
 
             /// <summary>
             /// 新規判断時の処理
@@ -112,7 +113,7 @@ namespace CharacterController
             {
                 // 判断情報をキャラデータに反映する。
                 // 時間に関してはゲームマネージャー実装後にマネージャーからとるように変更するよ。
-                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, this.moveState, this.result == JudgeResult.新しく判断をした ? this.actNum : -1, 0);
+                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, actNum, result, 0);
             }
 
             /// <summary>

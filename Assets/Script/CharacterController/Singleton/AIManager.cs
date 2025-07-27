@@ -306,9 +306,6 @@ namespace CharacterController
             // キャラステータスリストの初期化
             this.brainStatusList = Resources.Load<CharacterStatusList>("CharacterStatusList");
 
-            // タグハンドルの初期化
-            this.InitializeTagHandles();
-
             // 関係マップの初期化
             this.relationMap = new NativeArray<int>(3, Allocator.Persistent);
         }
@@ -418,16 +415,6 @@ namespace CharacterController
 
         #region 内部メソッド
 
-        /// <summary>
-        /// タグハンドルの初期化
-        /// ゲーム開始時に一度だけ実行される
-        /// </summary>
-        private void InitializeTagHandles()
-        {
-            objectTags = new ObjectTags();
-            terrainTags = new TerrainTags();
-            Debug.Log("AIManager: TagHandle初期化完了");
-        }
 
         #endregion
 
@@ -448,8 +435,6 @@ namespace CharacterController
 
             JobAI brainJob = new((
                 characterBaseInfo, characterAtkStatus, characterDefStatus, solidData, characterStateInfo, moveStatus, coldLog, recognitions),
-                this.personalHate,
-                this.teamHate,
                 this.judgeResult,
                 this.relationMap,
                 this.brainStatusList.brainArray,

@@ -151,6 +151,10 @@ namespace TestScript
         public void Execute(int index)
         {
 
+            // 2025/7/28 廃棄
+
+            /*
+
             // 結果の構造体を作成。
             CharacterController.BaseController.MovementInfo resultData = new();
 
@@ -326,7 +330,7 @@ namespace TestScript
             // ステータスはいくつかベースとなるテンプレのCharacterData作って、その数値をいじるコード書いてやる。
             // で、Jobシステムをまんまベタ移植した普通のクラスを作成して、速度を比較
             // 最後は二つのテストにより作成されたpublic UnsafeList<MovementInfo> judgeResult　の同一性をかくにんして、精度のチェックまで終わり
-
+            */
         }
 
         #region スキップ条件判断
@@ -390,7 +394,7 @@ namespace TestScript
         /// <param name="nowHate"></param>
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         public bool CheckActCondition(in ActJudgeData condition, int myIndex,
-            int targetIndex)
+        int targetIndex)
         {
             bool result = true;
 

@@ -47,13 +47,12 @@ namespace CharacterController.StatusData
         public enum ActTriggerCondition : byte
         {
             特定の対象が一定数いる時 = 1, //    フィルターを使う。数も入れてn体以上、って形にする。
-            特定の対象が一定割合いる時, // フィルターも活用することで、ここでかなりの数の単純な条件はやれる。一体以上条件でタイプフィルターで対象のタイプ絞ったり
             HPが一定割合の対象がいる時,
             MPが一定割合の対象がいる時,
-            対象のキャラが一定数以上密集している時, // 認識データからそいつの敵味方の近距離数を使う
+            対象のキャラの周囲に特定陣営が一定以上密集している時, // 認識データからそいつの敵味方の近距離数を使う
+            対象のキャラの周囲に特定陣営が一定以下しかいない時,
             周囲に指定のオブジェクトや地形がある時, // 認識データからオブジェクトの種類を使う
-            特定の数の敵に狙われている時,// 陣営フィルタリング
-            近距離に対象が一定数いる時,// 周囲のキャラの数を確認する。未実装
+            対象が一定数の敵に狙われている時,// 陣営フィルタリング
             対象のキャラの一定距離以内に飛び道具がある時, // 認識データから近距離探知の方の飛び道具の検知を使う。一瞬だけ味方全員守れる盾とか用意するか
             特定のイベントが発生した時, // イベントシステムで発生したイベントを確認する。確認するまでは起きたイベントは消さない。
                            // 判定値には陣営とイベントをセットする。
@@ -113,9 +112,9 @@ namespace CharacterController.StatusData
             対象のHPが一定割合の時,
             対象のMPが一定割合の時,
             対象の周囲に特定陣営のキャラが一定以上密集している時, // 認識データからそいつの敵味方の近距離数を使う
+            対象の周囲に特定陣営のキャラが一定以下しかいない時, // 認識データからそいつの敵味方の近距離数を使う
             対象の周囲に指定のオブジェクトや地形がある時, // 認識データからオブジェクトの種類を使う
             対象が特定の数の敵に狙われている時,// 陣営フィルタリング
-            対象の近距離に特定の陣営が一定数いる時,// 周囲のキャラの数を確認する。未実装
             対象の一定距離以内に飛び道具がある時, // 認識データから近距離探知の方の飛び道具の検知を使う。一瞬だけ味方全員守れる盾とか用意するか
             特定のイベントが発生した時, // イベントシステムで発生したイベントを確認する。確認するまでは起きたイベントは消さない。
                            // 判 定値には陣営とイベントをセットする。対象とは関係ない判断条件も少しは入れるか
@@ -166,6 +165,7 @@ namespace CharacterController.StatusData
             サポーター = 1 << 13,
             高速 = 1 << 14,
             指揮官 = 1 << 15,
+            戦闘状態 = 1 << 16, // 戦闘中のキャラ
             指定なし = 0//指定なし
         }
 
@@ -414,7 +414,7 @@ namespace CharacterController.StatusData
 
         /// <summary>
         /// BaseImfo region - キャラクターの基本情報（HP、MP、位置）
-        /// サイズ: 32バイト
+        /// サイズ: 26バイト
         /// 用途: 毎フレーム更新される基本ステータス(ID以外)
         /// SoA OK
         /// </summary>
@@ -444,12 +444,12 @@ namespace CharacterController.StatusData
             /// <summary>
             /// HPの割合
             /// </summary>
-            public int hpRatio;
+            public byte hpRatio;
 
             /// <summary>
             /// MPの割合
             /// </summary>
-            public int mpRatio;
+            public byte mpRatio;
 
             /// <summary>
             /// 現在位置
@@ -461,8 +461,8 @@ namespace CharacterController.StatusData
             /// </summary>
             public void UpdateRatios()
             {
-                this.hpRatio = this.maxHp > 0 ? this.currentHp * 100 / this.maxHp : 0;
-                this.mpRatio = this.maxMp > 0 ? this.currentMp * 100 / this.maxMp : 0;
+                this.hpRatio = (byte)(this.maxHp > 0 ? this.currentHp * 100 / this.maxHp : 0);
+                this.mpRatio = (byte)(this.maxMp > 0 ? this.currentMp * 100 / this.maxMp : 0);
             }
 
             /// <summary>
@@ -1492,11 +1492,18 @@ namespace CharacterController.StatusData
             public ActTriggerCondition judgeCondition;
 
             /// <summary>
+            /// 1から100で表現する行動を実行する可能性。
+            /// 条件判断を行う前に乱数で判定をする。
+            /// 100の場合は条件さえ当たれば100%実行する。
+            /// </summary>
+            public byte actRatio;
+
+            /// <summary>
             /// 判断に使用する数値。
             /// 条件によってはenumを変換した物だったりする。
             /// この数値以上のデータがあれば行動をする。
             /// </summary>
-            [Header("基準となる値")]
+            [Header("基準となる値1")]
             public int judgeLowerValue;
 
             /// <summary>
@@ -1504,7 +1511,7 @@ namespace CharacterController.StatusData
             /// 条件によってはenumを変換した物だったりする。
             /// この数値以下のデータがあれば行動をする。
             /// </summary>
-            [Header("基準となる値")]
+            [Header("基準となる値2")]
             public int judgeUpperValue;
 
             /// <summary>
@@ -1577,11 +1584,18 @@ namespace CharacterController.StatusData
             public MoveSelectCondition judgeCondition;
 
             /// <summary>
+            /// 1から100で表現する行動を実行する可能性。
+            /// 条件判断を行う前に乱数で判定をする。
+            /// 100の場合は条件さえ当たれば100%実行する。
+            /// </summary>
+            public byte actRatio;
+
+            /// <summary>
             /// 判断に使用する数値。
             /// 条件によってはenumを変換した物だったりする。
             /// この数値以上のデータがあれば行動をする。
             /// </summary>
-            [Header("基準となる値")]
+            [Header("基準となる値1")]
             public int judgeLowerValue;
 
             /// <summary>
@@ -1589,7 +1603,7 @@ namespace CharacterController.StatusData
             /// 条件によってはenumを変換した物だったりする。
             /// この数値以下のデータがあれば行動をする。
             /// </summary>
-            [Header("基準となる値")]
+            [Header("基準となる値2")]
             public int judgeUpperValue;
 
             /// <summary>
@@ -1604,14 +1618,7 @@ namespace CharacterController.StatusData
             public byte triggerNum;
 
             /// <summary>
-            /// 1から100で表現する行動を実行する可能性。
-            /// 条件判断を行う前に乱数で判定をする。
-            /// 100の場合は条件さえ当たれば100%実行する。
-            /// </summary>
-            public byte actRatio;
-
-            /// <summary>
-            /// このフラグが真ならクールタイム中でも実効の判断を行う。
+            /// このフラグが真ならクールタイム中でも判断を行う。
             /// </summary>
             public bool isCoolTimeIgnore;
 
@@ -1751,6 +1758,18 @@ namespace CharacterController.StatusData
             [BurstCompile]
             public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo, float2 nowPosition, float2 targetPosition)
             {
+
+                if ( _isSightCheck )
+                {
+                    RaycastCommand ray = new RaycastCommand(
+                        (Vector2)nowPosition,
+                        targetPosition - nowPosition,
+                        0.1f, // 視線チェックの距離
+                        LayerMask.GetMask("Default") // レイヤーマスクは適宜変更
+                    );
+
+                }
+
                 // すべての条件を2つのuint4にパック
                 uint4 masks1 = new(
                     (uint)this._targetFeature,
