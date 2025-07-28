@@ -257,37 +257,87 @@ jobs:
         
         def cleanup_unity_file(filepath):
             if not os.path.exists(filepath):
+                print(f"ファイルが存在しません: {filepath}")
+                return False
+            
+            # ファイルサイズチェック（大きすぎるファイルはスキップ）
+            try:
+                file_size = os.path.getsize(filepath)
+                if file_size > 1024 * 1024:  # 1MB以上はスキップ
+                    print(f"ファイルサイズが大きすぎます、スキップ: {filepath}")
+                    return False
+            except:
+                return False
+            
+            try:
+                # ファイル読み込み（複数エンコーディング対応）
+                content = None
+                for encoding in ['utf-8', 'shift_jis', 'cp932', 'utf-8-sig']:
+                    try:
+                        with open(filepath, 'r', encoding=encoding) as f:
+                            content = f.read()
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as e:
+                        print(f"読み込みエラー ({encoding}): {filepath} - {e}")
+                        continue
+                
+                if content is None:
+                    print(f"エンコーディングの検出に失敗: {filepath}")
+                    return False
+                
+                # バイナリファイルかチェック（ヌル文字が含まれている場合）
+                if '\x00' in content:
+                    print(f"バイナリファイルと判定、スキップ: {filepath}")
+                    return False
+                
+                original = content
+                
+                # SerializeFieldの整形
+                content = re.sub(
+                    r'\[SerializeField\]\s*private\s+',
+                    '[SerializeField] private ',
+                    content
+                )
+                
+                # 空のUnityメソッドにTODOコメントを追加
+                content = re.sub(
+                    r'(void\s+(?:Start|Awake|Update|FixedUpdate|LateUpdate)\s*\(\s*\)\s*{\s*})',
+                    r'\1  // TODO: Implementation needed or remove this method',
+                    content
+                )
+                
+                # 変更があった場合のみ書き込み（UTF-8で保存）
+                if content != original:
+                    try:
+                        with open(filepath, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                        print(f"クリーンアップ完了: {filepath}")
+                        return True
+                    except Exception as e:
+                        print(f"書き込みエラー: {filepath} - {e}")
+                        return False
+                
                 return False
                 
-            with open(filepath, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            original = content
-            
-            # SerializeFieldの整形
-            content = re.sub(
-                r'\[SerializeField\]\s*private\s+',
-                '[SerializeField] private ',
-                content
-            )
-            
-            # 空のUnityメソッドにTODOコメントを追加
-            content = re.sub(
-                r'(void\s+(?:Start|Awake|Update|FixedUpdate|LateUpdate)\s*\(\s*\)\s*{\s*})',
-                r'\1  // TODO: Implementation needed or remove this method',
-                content
-            )
-            
-            if content != original:
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                return True
-            return False
+            except Exception as e:
+                print(f"処理エラー: {filepath} - {e}")
+                return False
         
         if __name__ == "__main__":
+            success_count = 0
+            error_count = 0
+            
             for file in sys.argv[1:]:
-                if cleanup_unity_file(file):
-                    print(f"Cleaned up: {file}")
+                try:
+                    if cleanup_unity_file(file):
+                        success_count += 1
+                except Exception as e:
+                    print(f"予期しないエラー: {file} - {e}")
+                    error_count += 1
+            
+            print(f"処理完了: 成功 {success_count}件, エラー {error_count}件")
         EOF
         
         # Assets/Script以下のC#ファイルのみに対してPythonスクリプトの実行
