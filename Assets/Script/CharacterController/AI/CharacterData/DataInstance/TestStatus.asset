@@ -21,38 +21,198 @@ MonoBehaviour:
     PrefabModificationsReferencedUnityObjects: []
     PrefabModifications: []
     SerializationNodes: []
-  characterID: 0
+  characterID: 1
   baseData:
-    hp: 0
-    mp: 0
+    hp: 100
+    mp: 50
     baseAtk:
-      slash: 0
+      slash: 20
       pierce: 0
       strike: 0
-      fire: 0
+      fire: 5
       lightning: 0
       light: 0
       dark: 0
     baseDef:
-      slash: 0
+      slash: 10
       pierce: 0
       strike: 0
-      fire: 0
+      fire: 2
       lightning: 0
       light: 0
       dark: 0
-    initialMove: 0
-    initialBelong: 0
+    initialMove: 2
+    initialBelong: 2
   solidData:
-    attackElement: 0
-    weakPoint: 0
-    feature: 0
-    rank: 0
-    targetingLimit: 0
-  characterModeSetting: []
+    attackElement: 33
+    weakPoint: 64
+    feature: 40
+    rank: 1
+    targetingLimit: 3
+  characterModeSetting:
+  - judgeInterval:
+      x: 1
+      y: 0.5
+      z: 0.3
+    triggerCondition:
+    - judgeCondition: 6
+      actRatio: 12
+      judgeLowerValue: 0
+      judgeUpperValue: 30
+      triggerEventType: 1
+      triggerNum: 1
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
+    targetCondition:
+    - judgeCondition: 1
+      isInvert: 1
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
+    actCondition:
+    - judgeCondition: 2
+      actRatio: 100
+      judgeLowerValue: 0
+      judgeUpperValue: 50
+      triggerEventType: 2
+      triggerNum: 0
+      isCoolTimeIgnore: 0
+      isSelfJudge: 0
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
+  - judgeInterval:
+      x: 2
+      y: 1
+      z: 0.5
+    triggerCondition:
+    - judgeCondition: 7
+      actRatio: 90
+      judgeLowerValue: 2
+      judgeUpperValue: 10
+      triggerEventType: 0
+      triggerNum: 0
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
+    targetCondition:
+    - judgeCondition: 3
+      isInvert: 0
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
+    actCondition:
+    - judgeCondition: 7
+      actRatio: 100
+      judgeLowerValue: 1
+      judgeUpperValue: 10
+      triggerEventType: 2
+      triggerNum: 2
+      isCoolTimeIgnore: 1
+      isSelfJudge: 0
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
   moveStatus:
-    moveSpeed: 0
-    walkSpeed: 0
-    dashSpeed: 0
-    jumpHeight: 0
-  attackData: []
+    moveSpeed: 5
+    walkSpeed: 2
+    dashSpeed: 8
+    jumpHeight: 3
+  attackData:
+  - actionName: 
+    motionValue: 1
+    coolTimeData:
+      skipCondition: 2
+      judgeLowerValue: 0
+      judgeUpperValue: 20
+      coolTime: 1
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
+    stateChange: 2
+    isCancel: 0
+  - actionName: 
+    motionValue: 2
+    coolTimeData:
+      skipCondition: 2
+      judgeLowerValue: 0
+      judgeUpperValue: 20
+      coolTime: 2.5
+      filter:
+        _filterFlags: 0
+        _targetType: 0
+        _targetFeature: 0
+        _targetEffect: 0
+        _targetState: 0
+        _targetEvent: 0
+        _targetWeakPoint: 0
+        _targetUseElement: 0
+        _distanceRange:
+          x: 0
+          y: 0
+    stateChange: 2
+    isCancel: 0
