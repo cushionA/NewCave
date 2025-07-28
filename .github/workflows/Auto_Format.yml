@@ -4,13 +4,13 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '**.cs'
-      - '**.asmdef'
+      - 'Assets/Script/**/*.cs'
+      - 'Assets/Script/**/*.asmdef'
       - '.editorconfig'
   pull_request:
     branches: [ main ]
     paths:
-      - '**.cs'
+      - 'Assets/Script/**/*.cs'
 
 permissions:
   contents: write      # コミットプッシュ用
@@ -29,13 +29,13 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
         
-    # 2. 変更されたファイルの検出
+    # 2. 変更されたファイルの検出（Assets/Script以下のみ）
     - name: Get Changed Files
       id: changed-files
       uses: tj-actions/changed-files@v35
       with:
         files: |
-          **/*.cs
+          Assets/Script/**/*.cs
         separator: ","
         
     # 3. .NET環境のセットアップ
@@ -50,24 +50,82 @@ jobs:
         dotnet tool install -g dotnet-format
         echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
         
-    # 5. Unity用の一時的なプロジェクトファイル作成
-    - name: Create Temporary Project Structure
+    # 5. Unity用の複数プロジェクトファイル作成
+    - name: Create Multiple Project Structure
       run: |
-        # ソリューションファイルの作成
+        echo "## 🔍 AssemblyDefinitionの検出" >> $GITHUB_STEP_SUMMARY
+        
+        # Assets/Script以下のAssemblyDefinitionファイルを検出
+        ASMDEF_FILES=$(find Assets/Script -name "*.asmdef" 2>/dev/null || true)
+        
+        # プロジェクト情報を格納する配列
+        declare -a PROJECT_NAMES
+        declare -a PROJECT_GUIDS
+        PROJECT_COUNT=0
+        
+        # ソリューションファイルの開始部分を作成
         cat > UnityProject.sln << EOF
         Microsoft Visual Studio Solution File, Format Version 12.00
-        Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Assembly-CSharp", "Assembly-CSharp.csproj", "{12345678-1234-1234-1234-123456789012}"
-        EndProject
-        Global
-          GlobalSection(SolutionConfigurationPlatforms) = preSolution
-            Debug|Any CPU = Debug|Any CPU
-            Release|Any CPU = Release|Any CPU
-          EndGlobalSection
-        EndGlobal
         EOF
         
-        # プロジェクトファイルの作成
-        cat > Assembly-CSharp.csproj << EOF
+        # AssemblyDefinitionが見つかった場合の処理
+        if [ -n "$ASMDEF_FILES" ]; then
+          echo "発見されたAssemblyDefinition:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          for ASMDEF_FILE in $ASMDEF_FILES; do
+            # AssemblyDefinitionのファイル名からプロジェクト名を取得
+            ASMDEF_NAME=$(basename "$ASMDEF_FILE" .asmdef)
+            PROJECT_DIR=$(dirname "$ASMDEF_FILE")
+            
+            echo "$ASMDEF_FILE -> $ASMDEF_NAME" >> $GITHUB_STEP_SUMMARY
+            
+            # プロジェクトGUIDを生成（ファイル名をベースにした一意ID）
+            PROJECT_GUID=$(echo -n "$ASMDEF_NAME" | md5sum | cut -d' ' -f1)
+            PROJECT_GUID="${PROJECT_GUID:0:8}-${PROJECT_GUID:8:4}-${PROJECT_GUID:12:4}-${PROJECT_GUID:16:4}-${PROJECT_GUID:20:12}"
+            
+            PROJECT_NAMES[$PROJECT_COUNT]="$ASMDEF_NAME"
+            PROJECT_GUIDS[$PROJECT_COUNT]="$PROJECT_GUID"
+            PROJECT_COUNT=$((PROJECT_COUNT + 1))
+            
+            # ソリューションファイルにプロジェクト追加
+            cat >> UnityProject.sln << EOF
+        Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "$ASMDEF_NAME", "$ASMDEF_NAME.csproj", "{$PROJECT_GUID}"
+        EndProject
+        EOF
+            
+            # 各AssemblyDefinitionに対応するcsprojファイルを作成
+            cat > "$ASMDEF_NAME.csproj" << EOF
+        <Project Sdk="Microsoft.NET.Sdk">
+          <PropertyGroup>
+            <TargetFramework>netstandard2.1</TargetFramework>
+            <LangVersion>9.0</LangVersion>
+            <Nullable>enable</Nullable>
+            <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+            <AssemblyName>$ASMDEF_NAME</AssemblyName>
+          </PropertyGroup>
+          <ItemGroup>
+            <Compile Include="$PROJECT_DIR/**/*.cs" />
+            <PackageReference Include="Microsoft.Unity.Analyzers" Version="1.18.0" />
+          </ItemGroup>
+        </Project>
+        EOF
+            
+          done
+          
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "プロジェクト数: $PROJECT_COUNT" >> $GITHUB_STEP_SUMMARY
+          
+        else
+          # AssemblyDefinitionが見つからない場合はデフォルトプロジェクトを作成
+          echo "AssemblyDefinitionが見つからないため、デフォルトプロジェクトを作成" >> $GITHUB_STEP_SUMMARY
+          
+          cat >> UnityProject.sln << EOF
+        Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Assembly-CSharp", "Assembly-CSharp.csproj", "{12345678-1234-1234-1234-123456789012}"
+        EndProject
+        EOF
+          
+          cat > Assembly-CSharp.csproj << EOF
         <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
             <TargetFramework>netstandard2.1</TargetFramework>
@@ -76,10 +134,21 @@ jobs:
             <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
           </PropertyGroup>
           <ItemGroup>
-            <Compile Include="Assets/**/*.cs" />
+            <Compile Include="Assets/Script/**/*.cs" />
             <PackageReference Include="Microsoft.Unity.Analyzers" Version="1.18.0" />
           </ItemGroup>
         </Project>
+        EOF
+        fi
+        
+        # ソリューションファイルの終了部分を追加
+        cat >> UnityProject.sln << EOF
+        Global
+          GlobalSection(SolutionConfigurationPlatforms) = preSolution
+            Debug|Any CPU = Debug|Any CPU
+            Release|Any CPU = Release|Any CPU
+          EndGlobalSection
+        EndGlobal
         EOF
         
     # 6. コード分析の実行
@@ -106,66 +175,90 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
         fi
         
-    # 7. コードクリーンアップの実行
-    - name: Auto-Format Changed Files
+    # 7. コードクリーンアップの実行（Assets/Script以下のみ）
+    - name: Auto-Format Project
       id: format
       if: steps.changed-files.outputs.any_changed == 'true'
       run: |
         echo "## 🧹 コードクリーンアップ" >> $GITHUB_STEP_SUMMARY
         echo "対象ファイル数: ${{ steps.changed-files.outputs.all_changed_files_count }}" >> $GITHUB_STEP_SUMMARY
+        echo "フォーマット対象: Assets/Script/**/*.cs" >> $GITHUB_STEP_SUMMARY
         
         # フォーマット前の状態を保存
         git diff --name-only > before_format.txt
         
-        # 変更されたファイルのみフォーマット
-        IFS=',' read -ra FILES <<< "${{ steps.changed-files.outputs.all_changed_files }}"
-        for file in "${FILES[@]}"; do
-          if [ -f "$file" ]; then
-            echo "Formatting: $file"
-            dotnet format whitespace "$file" --folder
-            dotnet format style "$file" --severity info --folder
-            dotnet format analyzers "$file" --severity info --folder
-          fi
-        done
+        # Assets/Script以下のみを対象としたフォーマット実行
+        echo "Assets/Script以下のファイルをフォーマット中..." >> $GITHUB_STEP_SUMMARY
+        
+        # 段階的にフォーマットを実行（Assets/Script以下のみ）
+        echo "実行中: dotnet format whitespace --include Assets/Script/**/*.cs" >> $GITHUB_STEP_SUMMARY
+        dotnet format whitespace --include "Assets/Script/**/*.cs" || true
+        
+        echo "実行中: dotnet format style --include Assets/Script/**/*.cs" >> $GITHUB_STEP_SUMMARY
+        dotnet format style --severity info --include "Assets/Script/**/*.cs" || true
+        
+        echo "実行中: dotnet format analyzers --include Assets/Script/**/*.cs" >> $GITHUB_STEP_SUMMARY  
+        dotnet format analyzers --severity info --include "Assets/Script/**/*.cs" || true
         
         # フォーマット後の変更を確認
         git diff --name-only > after_format.txt
         
+        # Assets/Script以下で変更があったファイルのみをフィルタリング
+        grep "^Assets/Script/" after_format.txt > script_changes.txt 2>/dev/null || touch script_changes.txt
+        
         # 変更があったかチェック
-        if [ -s after_format.txt ]; then
+        if [ -s script_changes.txt ]; then
           echo "formatted=true" >> $GITHUB_OUTPUT
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📝 フォーマットされたファイル:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat after_format.txt >> $GITHUB_STEP_SUMMARY
+          cat script_changes.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          # 対象外ファイルの変更を警告
+          OTHER_CHANGES=$(grep -v "^Assets/Script/" after_format.txt 2>/dev/null || true)
+          if [ -n "$OTHER_CHANGES" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **注意**: Assets/Script以外のファイルも変更されましたが、コミット対象外です:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$OTHER_CHANGES" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
         else
           echo "formatted=false" >> $GITHUB_OUTPUT
-          echo "✨ すべてのファイルが既に適切にフォーマットされています" >> $GITHUB_STEP_SUMMARY
+          echo "✨ Assets/Script以下のファイルは既に適切にフォーマットされています" >> $GITHUB_STEP_SUMMARY
         fi
         
-    # 8. 未使用のusingステートメントの削除
+    # 8. 未使用のusingステートメントの削除（Assets/Script以下のみ）
     - name: Remove Unused Usings
       if: steps.changed-files.outputs.any_changed == 'true'
       run: |
         echo "## 🗑️ 未使用コードの削除" >> $GITHUB_STEP_SUMMARY
+        echo "対象: Assets/Script/**/*.cs" >> $GITHUB_STEP_SUMMARY
         
-        # IDE0005: 未使用のusingディレクティブを削除
-        dotnet format analyzers --diagnostics IDE0005 --severity info
+        # IDE0005: 未使用のusingディレクティブを削除（Assets/Script以下のみ）
+        dotnet format analyzers --diagnostics IDE0005 --severity info --include "Assets/Script/**/*.cs" || true
         
-        # その他のクリーンアップ
-        dotnet format analyzers --diagnostics IDE0001,IDE0002,IDE0004 --severity info
+        # その他のクリーンアップ（Assets/Script以下のみ）
+        dotnet format analyzers --diagnostics IDE0001,IDE0002,IDE0004 --severity info --include "Assets/Script/**/*.cs" || true
         
-    # 9. Unity特有のクリーンアップ
+    # 9. Unity特有のクリーンアップ（Assets/Script以下のみ）
     - name: Unity-Specific Cleanup
       if: steps.changed-files.outputs.any_changed == 'true'
       run: |
+        echo "## 🔧 Unity特有のクリーンアップ" >> $GITHUB_STEP_SUMMARY
+        echo "対象: Assets/Script以下のC#ファイル" >> $GITHUB_STEP_SUMMARY
+        
         # カスタムスクリプトでUnity特有の修正
         cat > unity_cleanup.py << 'EOF'
         import re
         import sys
+        import os
         
         def cleanup_unity_file(filepath):
+            if not os.path.exists(filepath):
+                return False
+                
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
             
@@ -197,11 +290,23 @@ jobs:
                     print(f"Cleaned up: {file}")
         EOF
         
-        # Pythonスクリプトの実行
-        IFS=',' read -ra FILES <<< "${{ steps.changed-files.outputs.all_changed_files }}"
-        python unity_cleanup.py "${FILES[@]}"
+        # Assets/Script以下のC#ファイルのみに対してPythonスクリプトの実行
+        SCRIPT_FILES=$(find Assets/Script -name "*.cs" 2>/dev/null || true)
         
-    # 10. 変更のコミット（pushの場合のみ、mainブランチへの直接pushは避ける）
+        if [ -n "$SCRIPT_FILES" ]; then
+          echo "処理対象ファイル:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$SCRIPT_FILES" | head -10 >> $GITHUB_STEP_SUMMARY
+          [ $(echo "$SCRIPT_FILES" | wc -l) -gt 10 ] && echo "... (他 $(($(echo "$SCRIPT_FILES" | wc -l) - 10))個のファイル)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+          # Pythonスクリプトの実行
+          echo "$SCRIPT_FILES" | xargs python unity_cleanup.py
+        else
+          echo "Assets/Script以下にC#ファイルが見つかりませんでした" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+    # 10. 変更のコミット（pushの場合のみ、Assets/Script以下のみ）
     - name: Commit Formatted Code
       if: |
         github.event_name == 'push' && 
@@ -212,13 +317,20 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         
-        # 変更をステージング
-        git add -A
+        # Assets/Script以下の変更のみをステージング
+        git add Assets/Script/
+        
+        # コミット対象があるかチェック
+        if git diff --cached --quiet; then
+          echo "コミット対象の変更がありません" >> $GITHUB_STEP_SUMMARY
+          exit 0
+        fi
         
         # コミット
+        CHANGED_FILES=$(git diff --cached --name-only | wc -l)
         git commit -m "🎨 Auto-format code [skip ci]" \
           -m "Formatted by GitHub Actions workflow" \
-          -m "Files formatted: $(git diff --cached --name-only | wc -l)"
+          -m "Files formatted in Assets/Script: $CHANGED_FILES"
         
         # プッシュ
         git push
