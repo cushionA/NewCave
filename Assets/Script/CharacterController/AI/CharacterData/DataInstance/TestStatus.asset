@@ -1,0 +1,58 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fa139d52361e39841b0b6a737a12e02e, type: 3}
+  m_Name: TestStatus
+  m_EditorClassIdentifier: 
+  serializationData:
+    SerializedFormat: 2
+    SerializedBytes: 
+    ReferencedUnityObjects: []
+    SerializedBytesString: 
+    Prefab: {fileID: 0}
+    PrefabModificationsReferencedUnityObjects: []
+    PrefabModifications: []
+    SerializationNodes: []
+  characterID: 0
+  baseData:
+    hp: 0
+    mp: 0
+    baseAtk:
+      slash: 0
+      pierce: 0
+      strike: 0
+      fire: 0
+      lightning: 0
+      light: 0
+      dark: 0
+    baseDef:
+      slash: 0
+      pierce: 0
+      strike: 0
+      fire: 0
+      lightning: 0
+      light: 0
+      dark: 0
+    initialMove: 0
+    initialBelong: 0
+  solidData:
+    attackElement: 0
+    weakPoint: 0
+    feature: 0
+    rank: 0
+    targetingLimit: 0
+  characterModeSetting: []
+  moveStatus:
+    moveSpeed: 0
+    walkSpeed: 0
+    dashSpeed: 0
+    jumpHeight: 0
+  attackData: []

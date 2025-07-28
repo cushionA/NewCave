@@ -30,8 +30,8 @@ namespace CharacterController.StatusData
     /// 
     /// 共通：キャラの種類ごとにキャラデータを収めた配列にはキャラIDでアクセスする。
     /// </summary>
-    [CreateAssetMenu(fileName = "SOAStatus", menuName = "Scriptable Objects/SOAStatus")]
-    public class BrainStatus : SerializedScriptableObject
+    [CreateAssetMenu(fileName = "BrainStatus", menuName = "Scriptable Objects/BrainStatus")]
+    public partial class BrainStatus : SerializedScriptableObject
     {
         #region Enum定義
 
@@ -1420,60 +1420,10 @@ namespace CharacterController.StatusData
         }
 
         /// <summary>
-        /// 行動後のクールタイムキャンセル判断に使用するデータ。
-        /// SoA OK
-        /// 32Byte
+        /// トリガー判断データ
         /// </summary>
         [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct CoolTimeData
-        {
-            /// <summary>
-            /// 行動判定をスキップする条件
-            /// </summary>
-            [Header("行動判定をスキップする条件")]
-            public ActTriggerCondition skipCondition;
-
-            /// <summary>
-            /// 判断に使用する数値。
-            /// 条件によってはenumを変換した物だったりする。
-            /// この数値以上のデータがあればクールタイムをスキップする。
-            /// </summary>
-            [Header("基準となる値")]
-            public int judgeLowerValue;
-
-            /// <summary>
-            /// 判断に使用する数値。
-            /// 条件によってはenumを変換した物だったりする。
-            /// この数値以下のデータがあればクールタイムをスキップする。
-            /// </summary>
-            [Header("基準となる値")]
-            public int judgeUpperValue;
-
-            /// <summary>
-            /// 設定するクールタイム。
-            /// </summary>
-            public float coolTime;
-
-            /// <summary>
-            /// 対象の陣営区分
-            /// 複数指定あり
-            /// </summary>
-            [Header("チェック対象の条件")]
-            public TargetFilter filter;
-
-        }
-
-        /// <summary>
-        /// 判断に使用するデータ。
-        /// この要件を満たすと条件イベントがトリガーされる。
-        /// 0.5秒に一回判定。
-        /// 30Byte
-        /// SoA OK
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct TriggerJudgeData
+        public partial struct TriggerJudgeData
         {
             /// <summary>
             /// トリガーされる行動のタイプ
@@ -1485,152 +1435,150 @@ namespace CharacterController.StatusData
                 個別行動 = 2,
             }
 
-            /// <summary>
-            /// 行動条件
-            /// </summary>
+#if UNITY_EDITOR
+            [InfoBox("@GetConditionDescription()")]
+#endif
             [Header("行動判定の条件")]
             public ActTriggerCondition judgeCondition;
 
-            /// <summary>
-            /// 1から100で表現する行動を実行する可能性。
-            /// 条件判断を行う前に乱数で判定をする。
-            /// 100の場合は条件さえ当たれば100%実行する。
-            /// </summary>
+            [Range(1, 100)]
+            [Tooltip("1から100で表現する行動を実行する可能性")]
             public byte actRatio;
 
-            /// <summary>
-            /// 判断に使用する数値。
-            /// 条件によってはenumを変換した物だったりする。
-            /// この数値以上のデータがあれば行動をする。
-            /// </summary>
+#if UNITY_EDITOR
+            [ShowInInspector]
+            [LabelText("@GetLowerValueLabel()")]
+            [ShowIf("@ShowLowerValue()")]
+            [HideIf("@IsLowerValueEnum()")]
+#endif
             [Header("基準となる値1")]
             public int judgeLowerValue;
 
-            /// <summary>
-            /// 判断に使用する数値。
-            /// 条件によってはenumを変換した物だったりする。
-            /// この数値以下のデータがあれば行動をする。
-            /// </summary>
+#if UNITY_EDITOR
+            [ShowInInspector]
+            [LabelText("@GetUpperValueLabel()")]
+            [ShowIf("@ShowUpperValue()")]
+            [HideIf("@IsUpperValueEnum()")]
+#endif
             [Header("基準となる値2")]
             public int judgeUpperValue;
 
-            /// <summary>
-            /// トリガーされるイベントのタイプ。
-            /// </summary>
             public TriggerEventType triggerEventType;
 
-            /// <summary>
-            /// トリガーされる行動の番号や、モードのデータ。
-            /// トリガーイベントタイプに応じて意味が変わる。
-            /// </summary>
+#if UNITY_EDITOR
+            [ShowIf("@ShowNormalTriggerNum()")]
+#endif
             public byte triggerNum;
 
-            /// <summary>
-            /// 対象の陣営区分
-            /// 複数指定あり
-            /// </summary>
             [Header("チェック対象の条件")]
             public TargetFilter filter;
         }
 
         /// <summary>
-        /// ターゲットを選択する際に使用するデータ。
-        /// ヘイトでもそれ以外でも構造体は同じ
-        /// 21Byte 
-        /// SoA OK
+        /// クールタイムデータ
         /// </summary>
         [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct TargetJudgeData
+        public partial struct CoolTimeData
         {
-            /// <summary>
-            /// ターゲットの判断基準。
-            /// </summary>
-            [Header("ターゲット判断基準")]
-            public TargetSelectCondition judgeCondition;
+#if UNITY_EDITOR
+            [InfoBox("@GetSkipConditionDescription()")]
+#endif
+            [Header("行動判定をスキップする条件")]
+            public ActTriggerCondition skipCondition;
 
-            /// <summary>
-            /// 真の場合、条件が反転する
-            /// 以上は以内になるなど
-            /// </summary>
-            [Header("基準反転フラグ")]
-            public BitableBool isInvert;
+#if UNITY_EDITOR
+            [ShowInInspector]
+            [LabelText("@GetLowerValueLabel()")]
+            [ShowIf("@ShowLowerValue()")]
+            [HideIf("@IsLowerValueEnum()")]
+#endif
+            [Header("基準となる値")]
+            public int judgeLowerValue;
 
-            /// <summary>
-            /// 対象の陣営区分
-            /// 複数指定あり
-            /// </summary>
+#if UNITY_EDITOR
+            [ShowInInspector]
+            [LabelText("@GetUpperValueLabel()")]
+            [ShowIf("@ShowUpperValue()")]
+            [HideIf("@IsUpperValueEnum()")]
+#endif
+            [Header("基準となる値")]
+            public int judgeUpperValue;
+
+            public float coolTime;
+
             [Header("チェック対象の条件")]
             public TargetFilter filter;
-
         }
 
         /// <summary>
-        /// 行動判断に使用するデータ。
-        /// この要件を満たすと特定の行動がトリガーされる。
-        /// モードチェンジなども引き起こせる。
-        /// 
-        /// 29Byte
-        /// SoA OK
+        /// 行動判断データ
         /// </summary>
         [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct ActJudgeData
+        public partial struct ActJudgeData
         {
-            /// <summary>
-            /// 行動条件
-            /// </summary>
+#if UNITY_EDITOR
+            [InfoBox("@GetConditionDescription()")]
+#endif
             [Header("行動判定の条件")]
             public MoveSelectCondition judgeCondition;
 
-            /// <summary>
-            /// 1から100で表現する行動を実行する可能性。
-            /// 条件判断を行う前に乱数で判定をする。
-            /// 100の場合は条件さえ当たれば100%実行する。
-            /// </summary>
+            [Range(1, 100)]
+            [Tooltip("1から100で表現する行動を実行する可能性")]
             public byte actRatio;
 
-            /// <summary>
-            /// 判断に使用する数値。
-            /// 条件によってはenumを変換した物だったりする。
-            /// この数値以上のデータがあれば行動をする。
-            /// </summary>
+#if UNITY_EDITOR
+            [ShowInInspector]
+            [LabelText("@GetLowerValueLabel()")]
+            [ShowIf("@ShowLowerValue()")]
+            [HideIf("@IsLowerValueEnum()")]
+#endif
             [Header("基準となる値1")]
             public int judgeLowerValue;
 
-            /// <summary>
-            /// 判断に使用する数値。
-            /// 条件によってはenumを変換した物だったりする。
-            /// この数値以下のデータがあれば行動をする。
-            /// </summary>
+#if UNITY_EDITOR
+            [ShowInInspector]
+            [LabelText("@GetUpperValueLabel()")]
+            [ShowIf("@ShowUpperValue()")]
+            [HideIf("@IsUpperValueEnum()")]
+#endif
             [Header("基準となる値2")]
             public int judgeUpperValue;
 
-            /// <summary>
-            /// トリガーされる行動のタイプ。
-            /// </summary>
             public TriggerEventType triggerEventType;
 
-            /// <summary>
-            /// トリガーされる行動の番号や、モードのデータ。
-            /// トリガーイベントタイプに応じて意味が変わる。
-            /// </summary>
+#if UNITY_EDITOR
+            [ShowIf("@ShowNormalTriggerNum()")]
+#endif
             public byte triggerNum;
 
-            /// <summary>
-            /// このフラグが真ならクールタイム中でも判断を行う。
-            /// </summary>
+            [Tooltip("このフラグが真ならクールタイム中でも判断を行う")]
             public bool isCoolTimeIgnore;
 
-            /// <summary>
-            /// このフラグが真なら判断は自分に対して行う。
-            /// </summary>
+            [Tooltip("このフラグが真なら判断は自分に対して行う")]
             public bool isSelfJudge;
 
-            /// <summary>
-            /// 対象の陣営区分
-            /// 複数指定あり
-            /// </summary>
+            [Header("チェック対象の条件")]
+            public TargetFilter filter;
+        }
+
+        /// <summary>
+        /// ターゲット判断データ
+        /// </summary>
+        [Serializable]
+        public partial struct TargetJudgeData
+        {
+#if UNITY_EDITOR
+            [InfoBox("@GetConditionDescription()")]
+#endif
+            [Header("ターゲット判断基準")]
+            public TargetSelectCondition judgeCondition;
+
+#if UNITY_EDITOR
+            [InfoBox("@GetInvertDescription()")]
+#endif
+            [Header("基準反転フラグ")]
+            public BitableBool isInvert;
+
             [Header("チェック対象の条件")]
             public TargetFilter filter;
         }
@@ -1758,17 +1706,6 @@ namespace CharacterController.StatusData
             [BurstCompile]
             public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo, float2 nowPosition, float2 targetPosition)
             {
-
-                if ( _isSightCheck )
-                {
-                    RaycastCommand ray = new RaycastCommand(
-                        (Vector2)nowPosition,
-                        targetPosition - nowPosition,
-                        0.1f, // 視線チェックの距離
-                        LayerMask.GetMask("Default") // レイヤーマスクは適宜変更
-                    );
-
-                }
 
                 // すべての条件を2つのuint4にパック
                 uint4 masks1 = new(
@@ -2263,15 +2200,18 @@ namespace CharacterController.StatusData
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Auto)]
-        public struct ActData
+        public partial struct ActData
         {
+            [Header("行動名")]
+            [Tooltip("エディタでの識別用の名前")]
+            public string actionName;
+
             /// <summary>
             /// 攻撃倍率。
             /// いわゆるモーション値
             /// </summary>
             [Header("攻撃倍率（モーション値）")]
             public float motionValue;
-
 
             /// <summary>
             /// 行動後の硬直に関するデータ。

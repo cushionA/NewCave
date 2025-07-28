@@ -7,13 +7,17 @@
         "GUID:e0cd26848372d4e5c891c569017e11f1",
         "GUID:4fc1ace1a19edec4d852e3d5e77499ae",
         "GUID:b9d61b92870877a459c95c25c7d15074",
-        "GUID:3b4d8e09c665bfa47849130d8695171e"
+        "GUID:3b4d8e09c665bfa47849130d8695171e",
+        "GUID:ad968d605628d06499b62cdc30f11cf8"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
     "overrideReferences": false,
-    "precompiledReferences": [],
+    "precompiledReferences": [
+        "Sirenix.OdinInspector.Editor.dll",
+        "Sirenix.OdinInspector.Attributes.dll"
+    ],
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],
