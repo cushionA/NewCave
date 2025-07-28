@@ -8,6 +8,7 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
+using static CharacterController.BaseController;
 using static CharacterController.StatusData.BrainStatus;
 
 namespace CharacterController.Collections
@@ -133,25 +134,24 @@ namespace CharacterController.Collections
         /// 新規判断時の処理
         /// 判断完了後にクールタイムなどをアップデートする。
         /// </summary>
-        public void UpdateDataAfterJudge(int hashCode, ActState newAct, int actionNum, float judgeTime)
+        public void UpdateDataAfterJudge(int hashCode, int actionNum, JudgeResult result, float judgeTime)
         {
             if ( TryGetIndexByHash(hashCode, out int index) )
             {
                 int id = _characterColdLog[index].characterID;
 
                 CharacterStateInfo stateInfo = _characterStateInfo[index];
-                stateInfo.actState = newAct;
                 _characterStateInfo[index] = stateInfo;
 
                 CharacterColdLog coldLog = _characterColdLog[index];
 
-                coldLog.lastMoveJudgeTime = judgeTime;
+                ///coldLog.lastMoveJudgeTime = judgeTime;
 
                 // 有効な新規判断をしている場合。
                 if ( actionNum != -1 )
                 {
                     coldLog.lastJudgeTime = judgeTime;
-                    coldLog.nowCoolTime = AIManager.instance.brainStatusList.brainArray[id - 1].brainSetting[(int)newAct].behaviorSetting[actionNum].coolTimeData;
+                    //    coldLog.nowCoolTime = AIManager.instance.brainStatusList.brainArray[id - 1].brainSetting[(int)newAct].behaviorSetting[actionNum].coolTimeData;
                 }
 
                 _characterColdLog[index] = coldLog;

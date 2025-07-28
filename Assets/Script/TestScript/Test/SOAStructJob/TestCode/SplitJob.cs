@@ -550,7 +550,9 @@ namespace SplitJob
         /// <param name="index"></param>
         public void Execute(int index)
         {
+            // 2025/7/28 廃棄
 
+            /*
             // 結果の構造体を作成。
             CharacterController.BaseController.MovementInfo resultData = new();
             int selectMove = this._selectMoveList[index];
@@ -634,6 +636,7 @@ namespace SplitJob
             // で、Jobシステムをまんまベタ移植した普通のクラスを作成して、速度を比較
             // 最後は二つのテストにより作成されたpublic UnsafeList<MovementInfo> judgeResult　の同一性をかくにんして、精度のチェックまで終わり
 
+            */
         }
 
         #region スキップ条件判断

@@ -1,12 +1,16 @@
 using Sirenix.OdinInspector;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 using static CharacterController.AIManager;
+using static CharacterController.StatusData.BrainStatus.TriggerJudgeData;
 
 namespace CharacterController.StatusData
 {
@@ -32,68 +36,38 @@ namespace CharacterController.StatusData
         #region Enum定義
 
         /// <summary>
-        /// 自分が行動を決定するための条件
+        /// 自分がターゲットを再設定やモード変更する条件。
+        /// また、クールタイム解消条件にも使用する。
         /// ○○の時、攻撃・回復・支援・逃走・護衛など
         /// 対象が自分、味方、敵のどれかという区分と否定（以上が以内になったり）フラグの組み合わせで表現 - > IsInvertフラグ
-        /// 味方が死んだとき、は死亡状態で数秒キャラを残すことで、死亡を条件にしたフィルターにかかるようにするか。
+        /// 味方が死んだとき、は死亡状態で数秒キャラを残すことで、死亡を条件にしたフィルターにかかるようにする。
+        /// 
+        /// 各条件に優先度をつけることで、現在のターゲットが敵で挑発状態か、とか命令で指定された相手か、とかの縛りを超えられるようにする
         /// </summary>
-        public enum ActJudgeCondition : byte
+        public enum ActTriggerCondition : byte
         {
-            指定のヘイト値の敵がいる時 = 1,
-            //対象が一定数の時 = 2, // フィルターも活用することで、ここでかなりの数の単純な条件はやれる。一体以上条件でタイプフィルターで対象のタイプ絞ったり
-            HPが一定割合の対象がいる時 = 2,
-            MPが一定割合の対象がいる時 = 3,
-            設定距離に対象がいる時 = 4,  //距離系の処理は別のやり方で事前にキャッシュを行う。AIの設定の範囲だけセンサーで調べる方法をとる。判断時にやるようにする？
-            特定の属性で攻撃する対象がいる時 = 5,
-            特定の数の敵に狙われている時 = 6,// 陣営フィルタリングは有効
-            近距離に対象が一定数いる時,// 未実装
+            特定の対象が一定数いる時 = 1, //    フィルターを使う。数も入れてn体以上、って形にする。
+            HPが一定割合の対象がいる時,
+            MPが一定割合の対象がいる時,
+            対象のキャラの周囲に特定陣営が一定以上密集している時, // 認識データからそいつの敵味方の近距離数を使う
+            対象のキャラの周囲に特定陣営が一定以下しかいない時,
+            周囲に指定のオブジェクトや地形がある時, // 認識データからオブジェクトの種類を使う
+            対象が一定数の敵に狙われている時,// 陣営フィルタリング
+            対象のキャラの一定距離以内に飛び道具がある時, // 認識データから近距離探知の方の飛び道具の検知を使う。一瞬だけ味方全員守れる盾とか用意するか
+            特定のイベントが発生した時, // イベントシステムで発生したイベントを確認する。確認するまでは起きたイベントは消さない。
+                           // 判定値には陣営とイベントをセットする。
             条件なし = 0 // 何も当てはまらなかった時の補欠条件。
         }
 
         /// <summary>
-        /// クールタイムをキャンセルする条件
-        /// 範囲で設定するようにしよう
-        /// </summary>
-        public enum SkipJudgeCondition : byte
-        {
-            自分のHPが一定割合の時 = 1,
-            自分のMPが一定割合の時,
-            味方のHPが一定割合の時,
-            味方のMPが一定割合の時,
-            敵のHPが一定割合の時,
-            敵のMPが一定割合の時,
-            味方の距離が一定の時,
-            敵の距離が一定の時,
-            条件なし = 0 // クールタイムスキップなし
-        }
-
-        /// <summary>
-        /// 判断の結果選択される行動のタイプ。
-        /// これは行動を起こした後に今何をしている、という感じで使う？
-        /// </summary>
-        [Flags]
-        public enum ActState
-        {
-            指定なし = 0,// ステートフィルター判断で使う。何も指定しない。
-            追跡 = 1 << 0,
-            逃走 = 1 << 1,
-            攻撃 = 1 << 2,
-            待機 = 1 << 3,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？ 移動もする
-            防御 = 1 << 4,// 動き出す距離を設定できるようにする？ その場で基本ガードだけど、相手がいくらか離れたら動き出す、的な
-            支援 = 1 << 5,
-            回復 = 1 << 6,
-            集合 = 1 << 7,// 特定の味方の場所に行く。集合後に防御に移行するロジックを組めば護衛にならない？
-            トリガー行動 = 1 << 8 // トリガーに応じて特定の行動を行うための行動入れ。
-        }
-
-        /// <summary>
-        /// 敵に対するヘイト値の上昇、減少の条件。
+        /// ターゲットを選択する際の条件
         /// 条件に当てはまる敵のヘイト値が上昇したり減少したりする。
         /// あるいは味方の支援・回復・護衛対象を決める
         /// これも否定フラグとの組み合わせで使う
         /// </summary>
         public enum TargetSelectCondition : byte
         {
+
             高度,
             HP割合,
             HP,
@@ -116,13 +90,61 @@ namespace CharacterController.StatusData
             闇防御力,
             自分,
             プレイヤー,
-            指定なし_ヘイト値, // 基本の条件。対象の中で最もヘイト高い相手を攻撃する。
-            不要_状態変更// モードチェンジする。
+            シスターさん,
+            プレイヤー陣営の密集人数,
+            魔物陣営の密集人数,
+            その他陣営の密集人数,
+            条件を満たす対象にとって最もヘイトが高いキャラ,
+            条件を満たす対象に最後に攻撃したキャラ,
+            指定なし_フィルターのみ, // 基本の条件。対象の中でフィルターに当てはまった相手を選ぶ
+        }
+
+        /// <summary>
+        /// ターゲットが固定された状態で行動を選ぶための条件。
+        /// ○○の時、攻撃・回復・支援・逃走・護衛など
+        /// 
+        /// この条件でもターゲット変更とかトリガーできるようにする？
+        /// </summary>
+        public enum MoveSelectCondition : byte
+        {
+            // 対象は自分かターゲットから選べる。フラグでね
+            対象がフィルターに当てはまる時 = 1, // フィルターを使う。他の条件でもフィルターは使える
+            対象のHPが一定割合の時,
+            対象のMPが一定割合の時,
+            対象の周囲に特定陣営のキャラが一定以上密集している時, // 認識データからそいつの敵味方の近距離数を使う
+            対象の周囲に特定陣営のキャラが一定以下しかいない時, // 認識データからそいつの敵味方の近距離数を使う
+            対象の周囲に指定のオブジェクトや地形がある時, // 認識データからオブジェクトの種類を使う
+            対象が特定の数の敵に狙われている時,// 陣営フィルタリング
+            対象の一定距離以内に飛び道具がある時, // 認識データから近距離探知の方の飛び道具の検知を使う。一瞬だけ味方全員守れる盾とか用意するか
+            特定のイベントが発生した時, // イベントシステムで発生したイベントを確認する。確認するまでは起きたイベントは消さない。
+                           // 判 定値には陣営とイベントをセットする。対象とは関係ない判断条件も少しは入れるか
+            ///モードチェンジから特定の秒数が経過した時,// モードチェンジ後の最初の行動や、n秒経過後の行動を制御。
+            // コントローラーでモード系のデータを記録してイベント出すのでイベントに統合
+            ターゲットが自分の場合,
+            条件なし = 0 // 何も当てはまらなかった時の補欠条件。
+        }
+
+        /// <summary>
+        /// 判断の結果選択される行動のタイプ。
+        /// これは行動を起こした後に今何をしている、という感じで使う？
+        /// </summary>
+        [Flags]
+        public enum ActState : byte
+        {
+            指定なし = 0,// ステートフィルター判断で使う。何も指定しない。
+            逃走 = 1 << 0,
+            攻撃 = 1 << 1,
+            移動 = 1 << 2,// 攻撃後のクールタイム中など。この状態で動作する回避率を設定する？ 移動もする
+            防御 = 1 << 3,// 動き出す距離を設定できるようにする？ その場で基本ガードだけど、相手がいくらか離れたら動き出す、的な
+            支援 = 1 << 4,
+            回復 = 1 << 5,
+            ターゲット変更 = 1 << 6, // ターゲットを変更する。
+            モード変更 = 1 << 7, // モードの変更
         }
 
         /// <summary>
         /// キャラクターの属性。
-        /// ここに当てはまる分全部ぶち込む。
+        /// ここに当てはまる分全部入れてビットフラグチェック。
         /// </summary>
         [Flags]
         public enum CharacterFeature
@@ -143,6 +165,7 @@ namespace CharacterController.StatusData
             サポーター = 1 << 13,
             高速 = 1 << 14,
             指揮官 = 1 << 15,
+            戦闘状態 = 1 << 16, // 戦闘中のキャラ
             指定なし = 0//指定なし
         }
 
@@ -210,14 +233,14 @@ namespace CharacterController.StatusData
             魔物側キャラ = 1 << 2, // 敵側のキャラを認識
             中立側キャラ = 1 << 3, // 中立側のキャラを認識
             危険物 = 1 << 4, // 危険物を認識
-            飛び道具攻撃 = 1 << 5, // 攻撃を認識
-            バフエリア = 1 << 6, // バフエリアを認識
-            デバフエリア = 1 << 7, // デバフエリアを認識
-            水場 = 1 << 8, // 水場を認識
-            毒沼 = 1 << 9, // 毒沼を認識
-            ダメージエリア = 1 << 10, // ダメージエリアを認識
-            破壊可能オブジェクト = 1 << 11, // 破壊可能なオブジェクトを認識
-            よじ登りポイント = 1 << 12, // 崖を認識
+            //飛び道具攻撃 = 1 << 5, // 飛び道具の検知は視界センサーに一任
+            バフエリア = 1 << 5, // バフエリアを認識
+            デバフエリア = 1 << 6, // デバフエリアを認識
+            水場 = 1 << 7, // 水場を認識
+            毒沼 = 1 << 8, // 毒沼を認識
+            ダメージエリア = 1 << 9, // ダメージエリアを認識
+            破壊可能オブジェクト = 1 << 10, // 破壊可能なオブジェクトを認識
+            よじ登りポイント = 1 << 11, // 崖を認識
         }
 
         /// <summary>
@@ -323,6 +346,25 @@ namespace CharacterController.StatusData
             /// </summary>
             public RecognizeObjectType recognizeObject;
 
+            /// <summary>
+            /// 視認した中で最も近い敵からの攻撃オブジェクトの距離
+            /// </summary>
+            public float detectNearestAttackDistance;
+
+            /// <summary>
+            /// 自分や味方に攻撃してきた敵のハッシュ値
+            /// これは攻撃スコアが一番大きい敵
+            /// 自分の場合はダメージの値だけ、味方の場合はダメージの半分
+            /// 回復や支援は無視する。
+            /// ヘイト増大の場合はこの値に1.2倍、減少の場合は0.8倍にしたスコアで評価
+            /// </summary>
+            public int hateEnemyHash;
+
+            /// <summary>
+            /// 最後に自分に攻撃してきた相手のハッシュ値。
+            /// </summary>
+            public int attackerHash;
+
             public void Reset()
             {
                 this.nearlyPlayerSideCount = 0;
@@ -368,13 +410,11 @@ namespace CharacterController.StatusData
             public int jumpHeight;
         }
 
-        #endregion 構造体定義
-
-        #region 実行時キャラクターデータ関連の構造体定義
+        #region 実行時キャラクター情報関連の構造体定義
 
         /// <summary>
         /// BaseImfo region - キャラクターの基本情報（HP、MP、位置）
-        /// サイズ: 32バイト
+        /// サイズ: 26バイト
         /// 用途: 毎フレーム更新される基本ステータス(ID以外)
         /// SoA OK
         /// </summary>
@@ -404,12 +444,12 @@ namespace CharacterController.StatusData
             /// <summary>
             /// HPの割合
             /// </summary>
-            public int hpRatio;
+            public byte hpRatio;
 
             /// <summary>
             /// MPの割合
             /// </summary>
-            public int mpRatio;
+            public byte mpRatio;
 
             /// <summary>
             /// 現在位置
@@ -421,8 +461,8 @@ namespace CharacterController.StatusData
             /// </summary>
             public void UpdateRatios()
             {
-                this.hpRatio = this.maxHp > 0 ? this.currentHp * 100 / this.maxHp : 0;
-                this.mpRatio = this.maxMp > 0 ? this.currentMp * 100 / this.maxMp : 0;
+                this.hpRatio = (byte)(this.maxHp > 0 ? this.currentHp * 100 / this.maxHp : 0);
+                this.mpRatio = (byte)(this.maxMp > 0 ? this.currentMp * 100 / this.maxMp : 0);
             }
 
             /// <summary>
@@ -495,14 +535,15 @@ namespace CharacterController.StatusData
 
         /// <summary>
         /// 参照頻度が少なく、加えて連続参照されないデータを集めた構造体。
-        /// 32byte
+        /// 50byte
         /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
         public struct CharacterColdLog
         {
             /// <summary>
             /// キャラクターのマスタ－データ上のID
             /// </summary>
-            public readonly int characterID;
+            public readonly byte characterID;
 
             /// <summary>
             /// キャラクターのハッシュ値を保存しておく。
@@ -511,13 +552,15 @@ namespace CharacterController.StatusData
 
             /// <summary>
             /// 最後に判断した時間。
+            /// xがターゲット判断でyが行動判断、zが移動判断の間隔。
+            /// wがトリガー判断の間隔
             /// </summary>
-            public float lastJudgeTime;
+            public float4 lastJudgeTime;
 
             /// <summary>
-            /// 最後に移動判断した時間。
+            /// 現在のモード
             /// </summary>
-            public float lastMoveJudgeTime;
+            public byte nowMode; // 現在のモード。モード変更時に更新される
 
             /// <summary>
             /// 現在のクールタイムのデータ。
@@ -527,11 +570,11 @@ namespace CharacterController.StatusData
 
             public CharacterColdLog(BrainStatus status, int hash)
             {
-                this.characterID = status.characterID;
+                this.characterID = (byte)status.characterID;
                 this.hashCode = hash;
                 // 最初はマイナスで10000を入れることですぐ動けるように
                 this.lastJudgeTime = -10000;
-                this.lastMoveJudgeTime = -10000;
+                this.nowMode = 0;
                 this.nowCoolTime = new CoolTimeData();
             }
 
@@ -685,191 +728,701 @@ namespace CharacterController.StatusData
 
         #endregion キャラクターデータ関連の構造体定義
 
-        #region SoA対象外
-
         #region 判断関連(Job使用)
 
         /// <summary>
-        /// AIの設定。
-        /// 要修正。インスペクタで使うだけならこのままにして変換しようか
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct BrainSetting
-        {
-
-            /// <summary>
-            /// 行動関連の設定データ
-            /// </summary>
-            [Header("行動設定")]
-            public BehaviorData[] judgeData;
-
-        }
-
-        /// <summary>
-        /// AIの設定。（Jobシステム仕様）
-        /// ステータスのCharacterSOAStatusから移植する。
-        /// 運用法としてはReadOnlyで、各Jobの時に現在の行動時のBrainSettingと判断間隔を抜いてそれきり
+        /// AI設定データのJob System用構造体
+        /// 
+        /// キャラクターのAI判断に必要なデータをJob Systemで効率的に使用できるよう、
+        /// ジャグ配列をフラット化して保持します。
+        /// 各キャラクターのデータはID順（1ベース）でマッピングされています。
+        /// 
+        /// 使用方法：
+        /// - 初期化時にCharacterModeDataのジャグ配列を渡す
+        /// - 各Jobで必要なデータをGetメソッドで取得
+        /// - ReadOnlyでの使用を推奨
         /// </summary>
         [StructLayout(LayoutKind.Sequential)]
         public struct BrainDataForJob : IDisposable
         {
-            /// <summary>
-            /// AIの判断間隔
-            /// </summary>
-            [Header("判断間隔")]
-            public float judgeInterval;
+            #region 判断間隔データ
 
             /// <summary>
-            /// AIの移動判断間隔
+            /// 全キャラクターの判断間隔データ（フラット化済み）
+            /// x: ターゲット判断間隔
+            /// y: 行動判断間隔
+            /// z: 移動判断間隔
             /// </summary>
-            [Header("移動判断間隔")]
-            public float moveJudgeInterval;
+            private NativeArray<float3> _intervalData;
 
             /// <summary>
-            /// ActStateを変換した int をキーとして行動のデータを持つ
+            /// 各キャラクターの判断間隔データ開始位置
+            /// インデックス = キャラクターID - 1
+            /// 値 = _intervalDataIndexRangeData内での開始インデックス
             /// </summary>
-            public NativeHashMap<int, BrainSettingForJob> brainSetting;
+            private NativeArray<int> _intervalDataIndexRangeStart;
 
             /// <summary>
-            /// ステータスのデータからJob用のデータを構築する。
+            /// 各キャラクター・各モードの判断間隔データ位置情報
+            /// x: _intervalData内での開始インデックス
+            /// y: データ長（通常は1）
             /// </summary>
-            /// <param name="sourceDic"></param>
-            /// <param name="judgeInterval"></param>
-            public BrainDataForJob(ActStateBrainDictionary sourceDic, float judgeInterval, float moveJudgeInterval)
+            private NativeArray<int2> _intervalDataIndexRangeData;
+
+            /// <summary>
+            /// シスター専用：判断間隔データ（最大5モード分）
+            /// </summary>
+            private NativeArray<float3> _sisIntervalData;
+
+            #endregion
+
+            #region トリガー行動データ
+
+            /// <summary>
+            /// 全キャラクターのトリガー行動条件データ（フラット化済み）
+            /// 優先度順に格納（最初の要素ほど優先度が高い）
+            /// </summary>
+            private NativeArray<TriggerJudgeData> _triggerCondition;
+
+            /// <summary>
+            /// 各キャラクターのトリガーデータ開始位置
+            /// インデックス = キャラクターID - 1
+            /// 値 = _triggerDataIndexRangeData内での開始インデックス
+            /// </summary>
+            private NativeArray<int> _triggerDataIndexRangeStart;
+
+            /// <summary>
+            /// 各キャラクター・各モードのトリガーデータ位置情報
+            /// x: _triggerCondition内での開始インデックス
+            /// y: データ長
+            /// </summary>
+            private NativeArray<int2> _triggerDataIndexRangeData;
+
+            /// <summary>
+            /// シスター専用：トリガー行動条件データ（最大5モード分）
+            /// </summary>
+            private NativeArray<TriggerJudgeData> _sisTriggerCondition;
+
+            /// <summary>
+            /// シスター専用：各モードの終了インデックス（累積）
+            /// 最大5モードまで対応。
+            /// x: モード1の終了位置（0から開始）
+            /// y: モード2の終了位置（xから開始）
+            /// z: モード3の終了位置（yから開始）
+            /// w: モード4の終了位置（zから開始）
+            /// モード5: wから配列長まで
+            /// </summary>
+            private int4 _sisTriggerIndexRange;
+
+            #endregion
+
+            #region ターゲット判断データ
+
+            /// <summary>
+            /// 全キャラクターのターゲット選択条件データ（フラット化済み）
+            /// デフォルトはヘイトベース、条件指定時は行動もセットで決定
+            /// </summary>
+            private NativeArray<TargetJudgeData> _targetCondition;
+
+            /// <summary>
+            /// 各キャラクターのターゲットデータ開始位置
+            /// インデックス = キャラクターID - 1
+            /// 値 = _tDataIndexRangeData内での開始インデックス
+            /// </summary>
+            private NativeArray<int> _tDataIndexRangeStart;
+
+            /// <summary>
+            /// 各キャラクター・各モードのターゲットデータ位置情報
+            /// x: _targetCondition内での開始インデックス
+            /// y: データ長
+            /// </summary>
+            private NativeArray<int2> _tDataIndexRangeData;
+
+            /// <summary>
+            /// シスター専用：ターゲット選択条件データ（最大5モード分）
+            /// </summary>
+            private NativeArray<TargetJudgeData> _sisTargetCondition;
+
+            /// <summary>
+            /// シスター専用：各モードの終了インデックス（累積）
+            /// 構造は_sisTriggerIndexRangeと同様（最大5モード対応）
+            /// </summary>
+            private int4 _sisTargetIndexRange;
+
+            #endregion
+
+            #region 行動判断データ
+
+            /// <summary>
+            /// 全キャラクターの行動選択条件データ（フラット化済み）
+            /// 優先度順に格納（最初の要素ほど優先度が高い）
+            /// </summary>
+            private NativeArray<ActJudgeData> _actCondition;
+
+            /// <summary>
+            /// 各キャラクターの行動データ開始位置
+            /// インデックス = キャラクターID - 1
+            /// 値 = _actDataIndexRangeData内での開始インデックス
+            /// </summary>
+            private NativeArray<int> _actDataIndexRangeStart;
+
+            /// <summary>
+            /// 各キャラクター・各モードの行動データ位置情報
+            /// x: _actCondition内での開始インデックス
+            /// y: データ長
+            /// </summary>
+            private NativeArray<int2> _actDataIndexRangeData;
+
+            /// <summary>
+            /// シスター専用：行動選択条件データ（最大5モード分）
+            /// </summary>
+            private NativeArray<ActJudgeData> _sisActCondition;
+
+            /// <summary>
+            /// シスター専用：各モードの終了インデックス（累積）
+            /// 構造は_sisTriggerIndexRangeと同様（最大5モード対応）
+            /// </summary>
+            private int4 _sisActIndexRange;
+
+            #endregion
+
+            /// <summary>
+            /// CharacterModeDataのジャグ配列からJob用のフラット化データを構築
+            /// 
+            /// データ構造：
+            /// - sourceData[0～n-2]: 通常キャラクターのデータ
+            /// - sourceData[n-1]: シスターのデータ（特別処理）
+            /// 
+            /// フラット化の流れ：
+            /// 1. 各キャラクターの各モードのデータを一次元配列に展開
+            /// 2. インデックス管理用の配列で各データの位置を記録
+            /// 3. GetSubArrayで高速アクセス可能な構造を実現
+            /// </summary>
+            /// <param name="sourceData">キャラクターモードデータのジャグ配列（値型構造体の配列）</param>
+            /// <param name="allocator">メモリアロケータ（デフォルト: Persistent）</param>
+            public BrainDataForJob(CharacterModeData[][] sourceData, Allocator allocator = Allocator.Persistent)
             {
-                // 判断間隔を設定。
-                this.judgeInterval = judgeInterval;
-                this.moveJudgeInterval = moveJudgeInterval;
+                // 最後の要素はシスターのデータとして特別扱い
+                int normalCharCount = sourceData.Length - 1;
 
-                this.brainSetting = new NativeHashMap<int, BrainSettingForJob>(sourceDic.Count, allocator: Allocator.Persistent);
+                #region 判断間隔データの初期化
 
-                foreach ( KeyValuePair<ActState, BrainSetting> item in sourceDic )
+                // ===== 一時的なコンテナの準備 =====
+                // 想定される最大サイズで初期化（キャラ数 × 最大モード数6）
+                var intervalDataContainer = new UnsafeList<float3>(normalCharCount * 6, Allocator.Temp);
+                var intervalDataRangeStartContainer = new UnsafeList<int>(normalCharCount, Allocator.Temp);
+                var intervalDataRangeContainer = new UnsafeList<int2>(normalCharCount * 6, Allocator.Temp);
+
+                // ===== 通常キャラクターの判断間隔データをフラット化 =====
+                for ( int charId = 0; charId < normalCharCount; charId++ )
                 {
-                    this.brainSetting.Add((int)item.Key, new BrainSettingForJob(item.Value, allocator: Allocator.Persistent));
+                    // このキャラクターのモード範囲情報の開始位置を記録
+                    // 例: charId=0なら0、charId=1で前キャラが3モードなら3
+                    intervalDataRangeStartContainer.Add(intervalDataRangeContainer.Length);
+
+                    // 各モードのデータを順次追加
+                    for ( int mode = 0; mode < sourceData[charId].Length; mode++ )
+                    {
+                        // 現在のデータ位置と長さ（判断間隔は1要素のみ）を記録
+                        intervalDataRangeContainer.Add(new int2(intervalDataContainer.Length, 1));
+
+                        // 実際のデータを追加
+                        intervalDataContainer.Add(sourceData[charId][mode].judgeInterval);
+                    }
                 }
+
+                // ===== 一時コンテナから永続的なNativeArrayに変換 =====
+                // ToArray()でUnsafeListの内部配列への参照を取得し、NativeArrayにコピー
+                _intervalData = new NativeArray<float3>(intervalDataContainer.ToArray(), allocator);
+                _intervalDataIndexRangeStart = new NativeArray<int>(intervalDataRangeStartContainer.ToArray(), allocator);
+                _intervalDataIndexRangeData = new NativeArray<int2>(intervalDataRangeContainer.ToArray(), allocator);
+
+                // ===== シスターの判断間隔データを設定 =====
+                // シスターは特別扱いのため、独立した配列で管理
+                var sisIntervalList = new List<float3>();
+                for ( int mode = 0; mode < sourceData[normalCharCount].Length; mode++ )
+                {
+                    sisIntervalList.Add(sourceData[normalCharCount][mode].judgeInterval);
+                }
+                _sisIntervalData = new NativeArray<float3>(sisIntervalList.ToArray(), allocator);
+
+                #endregion
+
+                #region トリガー行動データの初期化
+
+                // ===== 一時的なコンテナの準備 =====
+                // トリガーデータは可変長のため、大きめに初期化
+                var triggerDataContainer = new UnsafeList<TriggerJudgeData>(normalCharCount * 10, Allocator.Temp);
+                var triggerDataRangeStartContainer = new UnsafeList<int>(normalCharCount, Allocator.Temp);
+                var triggerDataRangeContainer = new UnsafeList<int2>(normalCharCount * 6, Allocator.Temp);
+
+                // ===== 通常キャラクターのトリガーデータをフラット化 =====
+                for ( int charId = 0; charId < normalCharCount; charId++ )
+                {
+                    // このキャラクターのインデックス範囲情報の開始位置を記録
+                    triggerDataRangeStartContainer.Add(triggerDataRangeContainer.Length);
+
+                    // 各モードのトリガー条件を処理
+                    for ( int mode = 0; mode < sourceData[charId].Length; mode++ )
+                    {
+                        // このモードのトリガーデータ開始位置を記録
+                        int startIndex = triggerDataContainer.Length;
+
+                        // モード内の全トリガー条件を追加
+                        var triggerConditions = sourceData[charId][mode].triggerCondition;
+                        foreach ( var trigger in triggerConditions )
+                        {
+                            triggerDataContainer.Add(trigger);
+                        }
+
+                        // このモードのデータ範囲（開始位置と要素数）を記録
+                        triggerDataRangeContainer.Add(new int2(startIndex, triggerConditions.Length));
+                    }
+                }
+
+                // ===== NativeArrayに変換 =====
+                _triggerCondition = new NativeArray<TriggerJudgeData>(triggerDataContainer.ToArray(), allocator);
+                _triggerDataIndexRangeStart = new NativeArray<int>(triggerDataRangeStartContainer.ToArray(), allocator);
+                _triggerDataIndexRangeData = new NativeArray<int2>(triggerDataRangeContainer.ToArray(), allocator);
+
+                // ===== シスターのトリガーデータを累積インデックス方式で設定 =====
+                var sisTriggerList = new List<TriggerJudgeData>();
+                var sisTriggerRanges = new int4();
+                int currentEndIndex = 0;
+
+                // 最大5モードまで処理（int4の制限による）
+                for ( int mode = 0; mode < sourceData[normalCharCount].Length && mode < 4; mode++ )
+                {
+                    var triggers = sourceData[normalCharCount][mode].triggerCondition;
+                    sisTriggerList.AddRange(triggers);
+
+                    // 累積終了位置を更新
+                    currentEndIndex += triggers.Length;
+
+                    // int4の各要素に累積終了インデックスを設定
+                    // これにより、モード間の境界を効率的に管理
+                    switch ( mode )
+                    {
+                        case 0:
+                            sisTriggerRanges.x = currentEndIndex;
+                            break;  // モード1: 0～x
+                        case 1:
+                            sisTriggerRanges.y = currentEndIndex;
+                            break;  // モード2: x～y
+                        case 2:
+                            sisTriggerRanges.z = currentEndIndex;
+                            break;  // モード3: y～z
+                        case 3:
+                            sisTriggerRanges.w = currentEndIndex;
+                            break;  // モード4: z～w
+                                    // モード5: w～配列長（自動的に決定）
+                    }
+                }
+
+                _sisTriggerCondition = new NativeArray<TriggerJudgeData>(sisTriggerList.ToArray(), allocator);
+                _sisTriggerIndexRange = sisTriggerRanges;
+
+                #endregion
+
+                #region ターゲット判断データの初期化
+
+                // ===== 一時的なコンテナの準備 =====
+                var targetDataContainer = new UnsafeList<TargetJudgeData>(normalCharCount * 10, Allocator.Temp);
+                var targetDataRangeStartContainer = new UnsafeList<int>(normalCharCount, Allocator.Temp);
+                var targetDataRangeContainer = new UnsafeList<int2>(normalCharCount * 6, Allocator.Temp);
+
+                // ===== 通常キャラクターのターゲットデータをフラット化 =====
+                // トリガーデータと同じパターンで処理
+                for ( int charId = 0; charId < normalCharCount; charId++ )
+                {
+                    targetDataRangeStartContainer.Add(targetDataRangeContainer.Length);
+
+                    for ( int mode = 0; mode < sourceData[charId].Length; mode++ )
+                    {
+                        int startIndex = targetDataContainer.Length;
+                        var targetConditions = sourceData[charId][mode].targetCondition;
+
+                        // 全ターゲット条件をフラット配列に追加
+                        foreach ( var target in targetConditions )
+                        {
+                            targetDataContainer.Add(target);
+                        }
+
+                        targetDataRangeContainer.Add(new int2(startIndex, targetConditions.Length));
+                    }
+                }
+
+                // ===== NativeArrayに変換 =====
+                _targetCondition = new NativeArray<TargetJudgeData>(targetDataContainer.ToArray(), allocator);
+                _tDataIndexRangeStart = new NativeArray<int>(targetDataRangeStartContainer.ToArray(), allocator);
+                _tDataIndexRangeData = new NativeArray<int2>(targetDataRangeContainer.ToArray(), allocator);
+
+                // ===== シスターのターゲットデータを設定 =====
+                var sisTargetList = new List<TargetJudgeData>();
+                var sisTargetRanges = new int4();
+                currentEndIndex = 0;
+
+                for ( int mode = 0; mode < sourceData[normalCharCount].Length && mode < 4; mode++ )
+                {
+
+                    var targets = sourceData[normalCharCount][mode].targetCondition;
+                    sisTargetList.AddRange(targets);
+                    currentEndIndex += targets.Length;
+
+                    switch ( mode )
+                    {
+                        case 0:
+                            sisTargetRanges.x = currentEndIndex;
+                            break;
+                        case 1:
+                            sisTargetRanges.y = currentEndIndex;
+                            break;
+                        case 2:
+                            sisTargetRanges.z = currentEndIndex;
+                            break;
+                        case 3:
+                            sisTargetRanges.w = currentEndIndex;
+                            break;
+                    }
+                }
+
+                _sisTargetCondition = new NativeArray<TargetJudgeData>(sisTargetList.ToArray(), allocator);
+                _sisTargetIndexRange = sisTargetRanges;
+
+                #endregion
+
+                #region 行動判断データの初期化
+
+                // ===== 一時的なコンテナの準備 =====
+                var actDataContainer = new UnsafeList<ActJudgeData>(normalCharCount * 10, Allocator.Temp);
+                var actDataRangeStartContainer = new UnsafeList<int>(normalCharCount, Allocator.Temp);
+                var actDataRangeContainer = new UnsafeList<int2>(normalCharCount * 6, Allocator.Temp);
+
+                // ===== 通常キャラクターの行動データをフラット化 =====
+                for ( int charId = 0; charId < normalCharCount; charId++ )
+                {
+                    actDataRangeStartContainer.Add(actDataRangeContainer.Length);
+
+                    for ( int mode = 0; mode < sourceData[charId].Length; mode++ )
+                    {
+                        int startIndex = actDataContainer.Length;
+                        var actConditions = sourceData[charId][mode].actCondition;
+
+                        // 全行動条件をフラット配列に追加
+                        foreach ( var act in actConditions )
+                        {
+                            actDataContainer.Add(act);
+                        }
+
+                        actDataRangeContainer.Add(new int2(startIndex, actConditions.Length));
+                    }
+                }
+
+                // ===== NativeArrayに変換 =====
+                _actCondition = new NativeArray<ActJudgeData>(actDataContainer.ToArray(), allocator);
+                _actDataIndexRangeStart = new NativeArray<int>(actDataRangeStartContainer.ToArray(), allocator);
+                _actDataIndexRangeData = new NativeArray<int2>(actDataRangeContainer.ToArray(), allocator);
+
+                // ===== シスターの行動データを設定 =====
+                var sisActList = new List<ActJudgeData>();
+                var sisActRanges = new int4();
+                currentEndIndex = 0;
+
+                for ( int mode = 0; mode < sourceData[normalCharCount].Length && mode < 4; mode++ )
+                {
+                    var acts = sourceData[normalCharCount][mode].actCondition;
+                    sisActList.AddRange(acts);
+                    currentEndIndex += acts.Length;
+
+                    switch ( mode )
+                    {
+                        case 0:
+                            sisActRanges.x = currentEndIndex;
+                            break;
+                        case 1:
+                            sisActRanges.y = currentEndIndex;
+                            break;
+                        case 2:
+                            sisActRanges.z = currentEndIndex;
+                            break;
+                        case 3:
+                            sisActRanges.w = currentEndIndex;
+                            break;
+                    }
+                }
+
+                _sisActCondition = new NativeArray<ActJudgeData>(sisActList.ToArray(), allocator);
+                _sisActIndexRange = sisActRanges;
+
+                #endregion
+
+                // ===== 一時的なコンテナを解放 =====
+                // Allocator.Tempで確保したメモリは明示的に解放
+                intervalDataContainer.Dispose();
+                intervalDataRangeStartContainer.Dispose();
+                intervalDataRangeContainer.Dispose();
+                triggerDataContainer.Dispose();
+                triggerDataRangeStartContainer.Dispose();
+                triggerDataRangeContainer.Dispose();
+                targetDataContainer.Dispose();
+                targetDataRangeStartContainer.Dispose();
+                targetDataRangeContainer.Dispose();
+                actDataContainer.Dispose();
+                actDataRangeStartContainer.Dispose();
+                actDataRangeContainer.Dispose();
             }
 
             /// <summary>
-            /// インターバルをまとめて返す。
+            /// 指定されたキャラクターID・モードの判断間隔データを取得
             /// </summary>
-            /// <returns></returns>
-            public float2 GetInterval()
+            /// <param name="id">キャラクターID（1ベース）</param>
+            /// <param name="mode">モード番号（1ベース）</param>
+            /// <returns>判断間隔データ（x:ターゲット, y:行動, z:移動）</returns>
+            public float3 GetIntervalData(byte id, byte mode)
             {
-                return new float2(this.judgeInterval, this.moveJudgeInterval);
+                id--;
+                mode--;
+
+                // シスターの場合
+                if ( id >= _intervalDataIndexRangeStart.Length )
+                {
+                    if ( mode >= 0 && mode < _sisIntervalData.Length )
+                    {
+                        return _sisIntervalData[mode];
+                    }
+                    return float3.zero;
+                }
+
+                // 通常キャラクターの場合
+                if ( id >= 0 && id < _intervalDataIndexRangeStart.Length )
+                {
+                    int2 indexData = _intervalDataIndexRangeData[_intervalDataIndexRangeStart[id] + mode];
+                    return _intervalData[indexData.x];
+                }
+
+                return float3.zero;
             }
 
             /// <summary>
-            /// 各キャラの設定として保持し続けるのでゲーム終了時に呼ぶ。
+            /// 指定されたキャラクターID・モードのトリガー判断データ配列を取得
+            /// </summary>
+            /// <param name="id">キャラクターID（1ベース）</param>
+            /// <param name="mode">モード番号（1ベース）</param>
+            /// <returns>トリガー判断データの配列（優先度順）</returns>
+            public NativeArray<TriggerJudgeData> GetTriggerJudgeDataArray(int id, int mode)
+            {
+                id--;
+                mode--;
+
+                // シスターの場合（最大5モード対応）
+                if ( id >= _triggerDataIndexRangeStart.Length )
+                {
+                    int startIndex = 0;
+                    int endIndex = 0;
+
+                    switch ( mode )
+                    {
+                        case 0:
+                            startIndex = 0;
+                            endIndex = _sisTriggerIndexRange.x;
+                            break;
+                        case 1:
+                            startIndex = _sisTriggerIndexRange.x;
+                            endIndex = _sisTriggerIndexRange.y;
+                            break;
+                        case 2:
+                            startIndex = _sisTriggerIndexRange.y;
+                            endIndex = _sisTriggerIndexRange.z;
+                            break;
+                        case 3:
+                            startIndex = _sisTriggerIndexRange.z;
+                            endIndex = _sisTriggerIndexRange.w;
+                            break;
+                        case 4:
+                            startIndex = _sisTriggerIndexRange.w;
+                            endIndex = _sisTriggerCondition.Length;
+                            break;
+                        default:
+                            return new NativeArray<TriggerJudgeData>();
+                    }
+
+                    return _sisTriggerCondition.GetSubArray(startIndex, endIndex - startIndex);
+                }
+
+                // 通常キャラクターの場合
+                if ( id >= 0 && id < _triggerDataIndexRangeStart.Length )
+                {
+                    int2 indexData = _triggerDataIndexRangeData[_triggerDataIndexRangeStart[id] + mode];
+                    return _triggerCondition.GetSubArray(indexData.x, indexData.y);
+                }
+
+                return new NativeArray<TriggerJudgeData>();
+            }
+
+            /// <summary>
+            /// 指定されたキャラクターID・モードのターゲット判断データ配列を取得
+            /// </summary>
+            /// <param name="id">キャラクターID（1ベース）</param>
+            /// <param name="mode">モード番号（1ベース）</param>
+            /// <returns>ターゲット判断データの配列</returns>
+            public NativeArray<TargetJudgeData> GetTargetJudgeDataArray(int id, int mode)
+            {
+                id--;
+                mode--;
+
+                // シスターの場合（最大5モード対応）
+                if ( id >= _tDataIndexRangeStart.Length )
+                {
+                    int startIndex = 0;
+                    int endIndex = 0;
+
+                    switch ( mode )
+                    {
+                        case 0:
+                            startIndex = 0;
+                            endIndex = _sisTargetIndexRange.x;
+                            break;
+                        case 1:
+                            startIndex = _sisTargetIndexRange.x;
+                            endIndex = _sisTargetIndexRange.y;
+                            break;
+                        case 2:
+                            startIndex = _sisTargetIndexRange.y;
+                            endIndex = _sisTargetIndexRange.z;
+                            break;
+                        case 3:
+                            startIndex = _sisTargetIndexRange.z;
+                            endIndex = _sisTargetIndexRange.w;
+                            break;
+                        case 4:
+                            startIndex = _sisTargetIndexRange.w;
+                            endIndex = _sisTargetCondition.Length;
+                            break;
+                        default:
+                            return new NativeArray<TargetJudgeData>();
+                    }
+
+                    return _sisTargetCondition.GetSubArray(startIndex, endIndex - startIndex);
+                }
+
+                // 通常キャラクターの場合
+                if ( id >= 0 && id < _tDataIndexRangeStart.Length )
+                {
+                    int2 indexData = _tDataIndexRangeData[_tDataIndexRangeStart[id] + mode];
+                    return _targetCondition.GetSubArray(indexData.x, indexData.y);
+                }
+
+                return new NativeArray<TargetJudgeData>();
+            }
+
+            /// <summary>
+            /// 指定されたキャラクターID・モードの行動判断データ配列を取得
+            /// </summary>
+            /// <param name="id">キャラクターID（1ベース）</param>
+            /// <param name="mode">モード番号（1ベース）</param>
+            /// <returns>行動判断データの配列（優先度順）</returns>
+            public NativeArray<ActJudgeData> GetActJudgeDataArray(int id, int mode)
+            {
+                id--;
+                mode--;
+
+                // シスターの場合（最大5モード対応）
+                if ( id >= _actDataIndexRangeStart.Length )
+                {
+                    int startIndex = 0;
+                    int endIndex = 0;
+
+                    switch ( mode )
+                    {
+                        case 0:
+                            startIndex = 0;
+                            endIndex = _sisActIndexRange.x;
+                            break;
+                        case 1:
+                            startIndex = _sisActIndexRange.x;
+                            endIndex = _sisActIndexRange.y;
+                            break;
+                        case 2:
+                            startIndex = _sisActIndexRange.y;
+                            endIndex = _sisActIndexRange.z;
+                            break;
+                        case 3:
+                            startIndex = _sisActIndexRange.z;
+                            endIndex = _sisActIndexRange.w;
+                            break;
+                        case 4:
+                            startIndex = _sisActIndexRange.w;
+                            endIndex = _sisActCondition.Length;
+                            break;
+                        default:
+                            return new NativeArray<ActJudgeData>();
+                    }
+
+                    return _sisActCondition.GetSubArray(startIndex, endIndex - startIndex);
+                }
+
+                // 通常キャラクターの場合
+                if ( id >= 0 && id < _actDataIndexRangeStart.Length )
+                {
+                    int2 indexData = _actDataIndexRangeData[_actDataIndexRangeStart[id] + mode];
+                    return _actCondition.GetSubArray(indexData.x, indexData.y);
+                }
+
+                return new NativeArray<ActJudgeData>();
+            }
+
+            /// <summary>
+            /// 全てのNativeArrayを解放
+            /// アプリケーション終了時またはデータ不要時に必ず呼び出すこと
             /// </summary>
             public void Dispose()
             {
-                foreach ( KVPair<int, BrainSettingForJob> item in this.brainSetting )
-                {
-                    item.Value.Dispose();
-                }
+                // 判断間隔データの解放
+                if ( _intervalData.IsCreated )
+                    _intervalData.Dispose();
+                if ( _intervalDataIndexRangeStart.IsCreated )
+                    _intervalDataIndexRangeStart.Dispose();
+                if ( _intervalDataIndexRangeData.IsCreated )
+                    _intervalDataIndexRangeData.Dispose();
+                if ( _sisIntervalData.IsCreated )
+                    _sisIntervalData.Dispose();
 
-                this.brainSetting.Dispose();
+                // トリガー行動データの解放
+                if ( _triggerCondition.IsCreated )
+                    _triggerCondition.Dispose();
+                if ( _triggerDataIndexRangeStart.IsCreated )
+                    _triggerDataIndexRangeStart.Dispose();
+                if ( _triggerDataIndexRangeData.IsCreated )
+                    _triggerDataIndexRangeData.Dispose();
+                if ( _sisTriggerCondition.IsCreated )
+                    _sisTriggerCondition.Dispose();
+
+                // ターゲット判断データの解放
+                if ( _targetCondition.IsCreated )
+                    _targetCondition.Dispose();
+                if ( _tDataIndexRangeStart.IsCreated )
+                    _tDataIndexRangeStart.Dispose();
+                if ( _tDataIndexRangeData.IsCreated )
+                    _tDataIndexRangeData.Dispose();
+                if ( _sisTargetCondition.IsCreated )
+                    _sisTargetCondition.Dispose();
+
+                // 行動判断データの解放
+                if ( _actCondition.IsCreated )
+                    _actCondition.Dispose();
+                if ( _actDataIndexRangeStart.IsCreated )
+                    _actDataIndexRangeStart.Dispose();
+                if ( _actDataIndexRangeData.IsCreated )
+                    _actDataIndexRangeData.Dispose();
+                if ( _sisActCondition.IsCreated )
+                    _sisActCondition.Dispose();
             }
-        }
-
-        /// <summary>
-        /// AIの設定。（Jobシステム仕様）
-        /// ステータスのCharacterSOAStatusから移植する。
-        /// 要改修
-        /// </summary>
-        [StructLayout(LayoutKind.Sequential)]
-        public struct BrainSettingForJob : IDisposable
-        {
-
-            /// <summary>
-            /// 行動条件データ
-            /// </summary>
-            [Header("行動条件データ")]
-            public NativeArray<BehaviorData> behaviorSetting;
-
-            /// <summary>
-            /// NativeArrayリソースを解放する
-            /// </summary>
-            public void Dispose()
-            {
-                if ( this.behaviorSetting.IsCreated )
-                {
-                    this.behaviorSetting.Dispose();
-                }
-            }
-
-            /// <summary>
-            /// オリジナルのCharacterSOAStatusからデータを明示的に移植
-            /// </summary>
-            /// <param name="source">移植元のキャラクターブレインステータス</param>
-            /// <param name="allocator">NativeArrayに使用するアロケータ</param>
-            public BrainSettingForJob(in BrainSetting source, Allocator allocator)
-            {
-
-                // 配列を新しく作成
-                this.behaviorSetting = source.judgeData != null
-                    ? new NativeArray<BehaviorData>(source.judgeData, allocator)
-                    : new NativeArray<BehaviorData>(0, allocator);
-            }
-
-        }
-
-        /// <summary>
-        /// ヘイトの設定。（Jobシステム仕様）
-        /// ステータスから移植する。
-        /// </summary>
-        [StructLayout(LayoutKind.Sequential)]
-        public struct HateSettingForJob
-        {
-            /// <summary>
-            /// 攻撃以外の行動条件データ.
-            /// 最初の要素ほど優先度高いので重点。
-            /// </summary>
-            [Header("ヘイト条件データ")]
-            public NativeArray<TargetJudgeData> hateCondition;
-
-            public HateSettingForJob(TargetJudgeData[] hateSetting)
-            {
-                this.hateCondition = new NativeArray<TargetJudgeData>(hateSetting, Allocator.Persistent);
-            }
-        }
-
-        /// <summary>
-        /// 行動判断時に使用するデータ。
-        /// 修正不要:消してそれぞれを配列で持つようにすればOK
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct BehaviorData
-        {
-            /// <summary>
-            /// 行動をスキップするための条件。
-            /// </summary>
-            [TabGroup(group: "AI挙動", tab: "スキップ条件")]
-            public CoolTimeData coolTimeData;
-
-            /// <summary>
-            /// 行動の条件。
-            /// 対象の陣営と特徴を指定できる。
-            /// </summary>
-            [TabGroup(group: "AI挙動", tab: "行動条件")]
-            public ActJudgeData actCondition;
-
-            /// <summary>
-            /// 攻撃含むターゲット選択データ
-            /// 要素は一つだが、その代わり複雑な条件で指定可能
-            /// 特に指定ない場合のみヘイトで動く
-            /// ここでヘイト以外の条件を指定した場合は、行動までセットで決める。
-            /// </summary>
-            [TabGroup(group: "AI挙動", tab: "対象選択条件")]
-            public TargetJudgeData targetCondition;
         }
 
         /// <summary>
         /// 行動後のクールタイムキャンセル判断に使用するデータ。
         /// SoA OK
-        /// 10Byte
+        /// 32Byte
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
@@ -879,63 +1432,98 @@ namespace CharacterController.StatusData
             /// 行動判定をスキップする条件
             /// </summary>
             [Header("行動判定をスキップする条件")]
-            public SkipJudgeCondition skipCondition;
+            public ActTriggerCondition skipCondition;
 
             /// <summary>
             /// 判断に使用する数値。
             /// 条件によってはenumを変換した物だったりする。
+            /// この数値以上のデータがあればクールタイムをスキップする。
             /// </summary>
             [Header("基準となる値")]
-            public int judgeValue;
+            public int judgeLowerValue;
 
             /// <summary>
-            /// 真の場合、条件が反転する
-            /// 以上は以内になるなど
+            /// 判断に使用する数値。
+            /// 条件によってはenumを変換した物だったりする。
+            /// この数値以下のデータがあればクールタイムをスキップする。
             /// </summary>
-            [Header("基準反転フラグ")]
-            public BitableBool isInvert;
+            [Header("基準となる値")]
+            public int judgeUpperValue;
 
             /// <summary>
             /// 設定するクールタイム。
             /// </summary>
             public float coolTime;
+
+            /// <summary>
+            /// 対象の陣営区分
+            /// 複数指定あり
+            /// </summary>
+            [Header("チェック対象の条件")]
+            public TargetFilter filter;
+
         }
 
         /// <summary>
         /// 判断に使用するデータ。
-        /// 56Byte
+        /// この要件を満たすと条件イベントがトリガーされる。
+        /// 0.5秒に一回判定。
+        /// 30Byte
         /// SoA OK
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
-        public struct ActJudgeData
+        public struct TriggerJudgeData
         {
+            /// <summary>
+            /// トリガーされる行動のタイプ
+            /// </summary>
+            public enum TriggerEventType : byte
+            {
+                モード変更 = 0,
+                ターゲット変更 = 1,// ターゲット変更の際は優先するターゲット条件を指定できる。
+                個別行動 = 2,
+            }
+
             /// <summary>
             /// 行動条件
             /// </summary>
             [Header("行動判定の条件")]
-            public ActJudgeCondition judgeCondition;
+            public ActTriggerCondition judgeCondition;
+
+            /// <summary>
+            /// 1から100で表現する行動を実行する可能性。
+            /// 条件判断を行う前に乱数で判定をする。
+            /// 100の場合は条件さえ当たれば100%実行する。
+            /// </summary>
+            public byte actRatio;
 
             /// <summary>
             /// 判断に使用する数値。
             /// 条件によってはenumを変換した物だったりする。
+            /// この数値以上のデータがあれば行動をする。
             /// </summary>
-            [Header("基準となる値")]
-            public int judgeValue;
+            [Header("基準となる値1")]
+            public int judgeLowerValue;
 
             /// <summary>
-            /// 真の場合、条件が反転する
-            /// 以上は以内になるなど
+            /// 判断に使用する数値。
+            /// 条件によってはenumを変換した物だったりする。
+            /// この数値以下のデータがあれば行動をする。
             /// </summary>
-            [Header("基準反転フラグ")]
-            public BitableBool isInvert;
+            [Header("基準となる値2")]
+            public int judgeUpperValue;
 
             /// <summary>
-            /// これが指定なし、以外だとステート変更を行う。
-            /// よって行動判断はスキップ
+            /// トリガーされるイベントのタイプ。
             /// </summary>
-            [Header("変更先のモード（変更する場合）")]
-            public ActState stateChange;
+            public TriggerEventType triggerEventType;
+
+            /// <summary>
+            /// トリガーされる行動の番号や、モードのデータ。
+            /// トリガーイベントタイプに応じて意味が変わる。
+            /// </summary>
+            public byte triggerNum;
 
             /// <summary>
             /// 対象の陣営区分
@@ -946,9 +1534,9 @@ namespace CharacterController.StatusData
         }
 
         /// <summary>
-        /// 行動判断後、行動のターゲットを選択する際に使用するデータ。
+        /// ターゲットを選択する際に使用するデータ。
         /// ヘイトでもそれ以外でも構造体は同じ
-        /// 52Byte 
+        /// 21Byte 
         /// SoA OK
         /// </summary>
         [Serializable]
@@ -975,21 +1563,81 @@ namespace CharacterController.StatusData
             [Header("チェック対象の条件")]
             public TargetFilter filter;
 
+        }
+
+        /// <summary>
+        /// 行動判断に使用するデータ。
+        /// この要件を満たすと特定の行動がトリガーされる。
+        /// モードチェンジなども引き起こせる。
+        /// 
+        /// 29Byte
+        /// SoA OK
+        /// </summary>
+        [Serializable]
+        [StructLayout(LayoutKind.Sequential)]
+        public struct ActJudgeData
+        {
             /// <summary>
-            /// 使用する行動の番号。
-            /// 指定なし ( = -1)の場合は敵の条件から勝手に決める。(ヘイトで決めた場合は-1の指定なしになる)
-            /// そうでない場合はここまで設定する。
-            /// 
-            /// あるいはヘイト上昇倍率になる。
+            /// 行動条件
             /// </summary>
-            [Header("ヘイト倍率or使用する行動のNo")]
-            [Tooltip("行動番号で-1を指定した場合、AIが対象の情報から行動を決める")]
-            public float useAttackOrHateNum;
+            [Header("行動判定の条件")]
+            public MoveSelectCondition judgeCondition;
+
+            /// <summary>
+            /// 1から100で表現する行動を実行する可能性。
+            /// 条件判断を行う前に乱数で判定をする。
+            /// 100の場合は条件さえ当たれば100%実行する。
+            /// </summary>
+            public byte actRatio;
+
+            /// <summary>
+            /// 判断に使用する数値。
+            /// 条件によってはenumを変換した物だったりする。
+            /// この数値以上のデータがあれば行動をする。
+            /// </summary>
+            [Header("基準となる値1")]
+            public int judgeLowerValue;
+
+            /// <summary>
+            /// 判断に使用する数値。
+            /// 条件によってはenumを変換した物だったりする。
+            /// この数値以下のデータがあれば行動をする。
+            /// </summary>
+            [Header("基準となる値2")]
+            public int judgeUpperValue;
+
+            /// <summary>
+            /// トリガーされる行動のタイプ。
+            /// </summary>
+            public TriggerEventType triggerEventType;
+
+            /// <summary>
+            /// トリガーされる行動の番号や、モードのデータ。
+            /// トリガーイベントタイプに応じて意味が変わる。
+            /// </summary>
+            public byte triggerNum;
+
+            /// <summary>
+            /// このフラグが真ならクールタイム中でも判断を行う。
+            /// </summary>
+            public bool isCoolTimeIgnore;
+
+            /// <summary>
+            /// このフラグが真なら判断は自分に対して行う。
+            /// </summary>
+            public bool isSelfJudge;
+
+            /// <summary>
+            /// 対象の陣営区分
+            /// 複数指定あり
+            /// </summary>
+            [Header("チェック対象の条件")]
+            public TargetFilter filter;
         }
 
         /// <summary>
         /// 行動条件や対象設定条件で検査対象をフィルターするための構造体
-        /// 22Byte
+        /// 19Byte
         /// SoA OK
         /// </summary>
         [Serializable]
@@ -1007,7 +1655,9 @@ namespace CharacterController.StatusData
                 行動状態フィルター_And判断 = 1 << 2,
                 イベントフィルター_And判断 = 1 << 3,
                 弱点属性フィルター_And判断 = 1 << 4,
-                使用属性フィルター_And判断 = 1 << 5
+                使用属性フィルター_And判断 = 1 << 5,
+                自分を対象にする = 1 << 6,
+                プレーヤーを対象にする = 1 << 7,
             }
 
             /// <summary>
@@ -1083,14 +1733,43 @@ namespace CharacterController.StatusData
             private float2 _distanceRange;
 
             /// <summary>
+            /// 自分を対象にするかどうか
+            /// </summary>
+            public bool SelfTarget
+            {
+                get => (this._filterFlags & FilterBitFlag.自分を対象にする) != 0;
+            }
+
+            /// <summary>
+            /// プレイヤーを対象にするか
+            /// </summary>
+            public bool PlayerTarget
+            {
+                get => (this._filterFlags & FilterBitFlag.プレーヤーを対象にする) != 0;
+            }
+
+            /// <summary>
             /// 検査対象キャラクターの条件に当てはまるかをチェックする。
             /// </summary>
             /// <param name="solidData"></param>
             /// <param name="stateInfo"></param>
             /// <returns></returns>
             [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
+            [BurstCompile]
             public byte IsPassFilter(in SolidData solidData, in CharacterStateInfo stateInfo, float2 nowPosition, float2 targetPosition)
             {
+
+                if ( _isSightCheck )
+                {
+                    RaycastCommand ray = new RaycastCommand(
+                        (Vector2)nowPosition,
+                        targetPosition - nowPosition,
+                        0.1f, // 視線チェックの距離
+                        LayerMask.GetMask("Default") // レイヤーマスクは適宜変更
+                    );
+
+                }
+
                 // すべての条件を2つのuint4にパック
                 uint4 masks1 = new(
                     (uint)this._targetFeature,
@@ -1172,6 +1851,7 @@ namespace CharacterController.StatusData
             /// 条件評価をSIMDで実行するヘルパーメソッド
             /// </summary>
             [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
+            [BurstCompile]
             private static bool4 EvaluateConditions(uint4 masks, uint4 andResults, bool4 isAndCheck)
             {
                 bool4 zeroMasks = masks == 0u;
@@ -1483,7 +2163,44 @@ namespace CharacterController.StatusData
 
         #endregion 判断関連
 
+        #region SoA対象外構造体
+
         #region キャラクター基幹データ（非Job）
+
+        /// <summary>
+        /// キャラクターのモードがどのようなものであるかを定義するための構造体。
+        /// AIで使用するデータを入れる。
+        /// </summary>
+        [Serializable]
+        public class CharacterModeData
+        {
+            /// <summary>
+            /// モードごとの判断の間隔
+            /// xがターゲット判断でyが行動判断、zが移動判断の間隔。
+            /// </summary>
+            public float3 judgeInterval;
+
+            /// <summary>
+            /// 攻撃以外の行動条件データ.
+            /// 最初の要素ほど優先度高いので重点。
+            /// </summary>
+            [Header("トリガー行動判断条件")]
+            public TriggerJudgeData[] triggerCondition;
+
+            /// <summary>
+            /// ターゲット判断用のデータ。
+            /// </summary>
+            [Header("ターゲット判断条件")]
+            public TargetJudgeData[] targetCondition;
+
+            /// <summary>
+            /// 攻撃以外の行動条件データ.
+            /// 最初の要素ほど優先度高いので重点。
+            /// </summary>
+            [Header("行動判断条件")]
+            public ActJudgeData[] actCondition;
+
+        }
 
         /// <summary>
         /// 送信するデータ、不変の物
@@ -1540,10 +2257,13 @@ namespace CharacterController.StatusData
         /// 前回使用した時間、とかを記録するために、キャラクター側に別途リンクした管理情報が必要。
         /// あとJobシステムで使用しない構造体はなるべくメモリレイアウトを最適化する。ネイティブコードとの連携を気にしなくていいから。
         /// 実際にゲームに組み込む時は攻撃以外の行動にも対応できるようにするか。
+        /// 
+        /// 魔法とか移動とか全部これに組み込めるようにする。
+        /// これは行動のヘッダ情報なので、実際の行動データはインターフェイスかなにか経由で派生クラスに持たせてもいい。
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Auto)]
-        public struct AttackData
+        public struct ActData
         {
             /// <summary>
             /// 攻撃倍率。
@@ -1552,23 +2272,31 @@ namespace CharacterController.StatusData
             [Header("攻撃倍率（モーション値）")]
             public float motionValue;
 
+
+            /// <summary>
+            /// 行動後の硬直に関するデータ。
+            /// 行動選択後に設定する。
+            /// </summary>
+            [Header("行動インターバルデータ")]
+            public CoolTimeData coolTimeData;
+
+            /// <summary>
+            /// 外部から何をしているのか、が分かるように行動に応じて設定するデータ。
+            /// </summary>
+            [Header("変更先の行動タイプ")]
+            public ActState stateChange;
+
+            /// <summary>
+            /// 他の行動御キャンセルして発生するか。
+            /// </summary>
+            public bool isCancel;
         }
 
         #endregion
 
         #endregion SoA対象外
 
-        #region シリアライズ可能なディクショナリの定義
-
-        /// <summary>
-        /// ActStateがキーでCharacterSOAStatusが値のディクショナリ
-        /// </summary>
-        [Serializable]
-        public class ActStateBrainDictionary : SerializableDictionary<ActState, BrainSetting>
-        {
-        }
-
-        #endregion
+        #endregion 構造体定義
 
         #region 初期化用のデコンストラクタ
 
@@ -1602,18 +2330,6 @@ namespace CharacterController.StatusData
         public int characterID;
 
         /// <summary>
-        /// AIの判断間隔
-        /// </summary>
-        [Header("判断間隔")]
-        public float judgeInterval;
-
-        /// <summary>
-        /// AIの移動判断間隔
-        /// </summary>
-        [Header("移動判断間隔")]
-        public float moveJudgeInterval;
-
-        /// <summary>
         /// キャラのベース、固定部分のデータ。
         /// これは直接仕様はせず、コピーして各キャラに渡してあげる。
         /// </summary>
@@ -1627,19 +2343,10 @@ namespace CharacterController.StatusData
         public SolidData solidData;
 
         /// <summary>
-        /// 攻撃以外の行動条件データ.
-        /// 最初の要素ほど優先度高いので重点。
+        /// キャラクターのモードごとのAI設定。
         /// </summary>
-        [Header("ヘイト条件データ")]
-        public TargetJudgeData[] hateCondition;
-
-        /// <summary>
-        /// キャラのAIの設定。
-        /// モード（攻撃や逃走などの状態）ごとにモードのEnumを int 変換した数をキーにしたHashMapになる。
-        /// ActStateBrainDictionaryはシリアライズ可能なDictionary。
-        /// </summary>
-        [Header("キャラAIの設定")]
-        public ActStateBrainDictionary brainData;
+        [Header("AI設定")]
+        public CharacterModeData[] characterModeSetting;
 
         /// <summary>
         /// 移動速度などのデータ
@@ -1652,13 +2359,6 @@ namespace CharacterController.StatusData
         /// Jobに入れないので攻撃エフェクト等も持たせていい。
         /// </summary>
         [Header("攻撃データ一覧")]
-        public AttackData[] attackData;
-
-        /// <summary>
-        /// 旧ステータスのデータをコピーする。
-        /// エディターで動かせる関数を用意しよう。
-        /// </summary>
-        public BrainStatus source;
-
+        public ActData[] attackData;
     }
 }

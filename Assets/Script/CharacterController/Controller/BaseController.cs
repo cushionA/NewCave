@@ -23,12 +23,13 @@ namespace CharacterController
         /// 判断結果をまとめて格納するビット演算用
         /// </summary>
         [Flags]
-        public enum JudgeResult
+        public enum JudgeResult : byte
         {
             何もなし = 0,
-            新しく判断をした = 1 << 1,// この時は移動方向も変える
-            方向転換をした = 1 << 2,
-            状態を変更した = 1 << 3,
+            モード変更した = 1 << 1,// この時は移動方向も変える
+            ターゲット変更した = 1 << 2,
+            行動を変更した = 1 << 3,
+            方向を変更した = 1 << 4,
         }
 
         /// <summary>
@@ -72,7 +73,7 @@ namespace CharacterController
             /// <summary>
             /// 現在のターゲットとの距離。マイナスもあるので方向でもある。
             /// </summary>
-            public int targetDirection;
+            public float targetDistance;
 
             /// <summary>
             /// 番号で行動を指定する。
@@ -80,7 +81,12 @@ namespace CharacterController
             /// こっちの構造データはステータスに持たせとこ。行動状態ごとに番号で指定された行動をする。
             /// 状態変更の場合、これで変更先の状態を指定する。
             /// </summary>
-            public int actNum;
+            public byte actNum;
+
+            /// <summary>
+            /// 変更先のモード。
+            /// </summary>
+            public byte changeMode;
 
             /// <summary>
             /// 判断結果についての情報を格納するビット
@@ -88,21 +94,16 @@ namespace CharacterController
             public JudgeResult result;
 
             /// <summary>
-            /// 現在の行動状態。
-            /// </summary>
-            public ActState moveState;
-
-            /// <summary>
             /// デバッグ用。
             /// 選択した行動条件を設定する。
             /// </summary>
-            public int selectActCondition;
+            public byte selectActCondition;
 
             /// <summary>
             /// デバッグ用。
             /// 選択したターゲット選択条件を設定する。
             /// </summary>
-            public int selectTargetCondition;
+            public byte selectTargetCondition;
 
             /// <summary>
             /// 新規判断時の処理
@@ -112,7 +113,7 @@ namespace CharacterController
             {
                 // 判断情報をキャラデータに反映する。
                 // 時間に関してはゲームマネージャー実装後にマネージャーからとるように変更するよ。
-                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, this.moveState, this.result == JudgeResult.新しく判断をした ? this.actNum : -1, 0);
+                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, actNum, result, 0);
             }
 
             /// <summary>
