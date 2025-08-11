@@ -9,6 +9,7 @@ using UnityEngine;
 using static CharacterController.BaseController;
 using static CharacterController.StatusData.BrainStatus;
 using static CharacterController.StatusData.BrainStatus.TriggerJudgeData;
+using static MoreMountains.CorgiEngine.MyCharacter;
 using static UnityEditor.Experimental.AssetDatabaseExperimental.AssetDatabaseCounters;
 using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
 
@@ -88,7 +89,7 @@ namespace CharacterController
         /// ターゲット変更の反映とかも全部こっちでやる。
         /// </summary>
         [WriteOnly]
-        public UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult;
+        public UnsafeList<MovementInfo> judgeResult;
 
         /// <summary>
         /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。
@@ -121,8 +122,9 @@ namespace CharacterController
         UnsafeList<CharacterStateInfo> characterStateInfo,
         UnsafeList<MoveStatus> moveStatus,
         UnsafeList<CharacterColdLog> coldLog,
-            UnsafeList<RecognitionData> recognizeData
-        ) dataLists, UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult,
+            UnsafeList<RecognitionData> recognizeData,
+            UnsafeList<MovementInfo> judgeResult
+        ) dataLists,
             NativeArray<int> relationMap, BrainDataForJob brainArray, float nowTime)
         {
             // タプルから各データリストを展開してフィールドに代入
@@ -135,7 +137,7 @@ namespace CharacterController
             this._coldLog = dataLists.coldLog;
             this._recognizeData = dataLists.recognizeData;
 
-            this.judgeResult = judgeResult;
+            this.judgeResult = dataLists.judgeResult;
             this.relationMap = relationMap;
             this.brainArray = brainArray;
             this.nowTime = nowTime;
@@ -515,7 +517,6 @@ namespace CharacterController
         /// <param name="condition">スキップ判定用データ</param>
         /// <param name="myIndex">キャラクターデータ</param>
         /// <returns>条件に合致する場合は1、それ以外は0</returns>
-        [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         private bool JudgeCoolTimeBreak(in CoolTimeData condition, int myIndex)
         {
             // 特定のターゲットが指定されていれば設定するための変数
@@ -962,7 +963,6 @@ namespace CharacterController
         /// <param name="conditions"></param>
         /// <param name="charaData"></param>
         /// <param name="nowHate"></param>
-        [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         private bool JudgeTriggerCondition(in TriggerJudgeData condition, int myIndex,
             int targetIndex, ref int counter)
         {
@@ -1084,7 +1084,6 @@ namespace CharacterController
         /// </summary>
         /// <returns>返り値は行動ターゲットのインデックス</returns>
         // TargetConditionに基づいて判定を行うメソッド
-        [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         private int JudgeTargetCondition(in TargetJudgeData judgeData, int myIndex)
         {
             int index = -1;
@@ -1276,7 +1275,6 @@ namespace CharacterController
         private int FindTargetWithHighestHate(in TargetFilter filter, int myIndex)
         {
             float2 myPosition = _characterBaseInfo[myIndex].nowPosition;
-            int bestIndex = -1;
             int bestTargetIndex = -1;
 
             for ( int i = 0; i < _characterBaseInfo.Length; i++ )
@@ -1298,7 +1296,6 @@ namespace CharacterController
                             if ( _coldLog[j].hashCode == hateTargetHash )
                             {
                                 bestTargetIndex = j;
-                                bestIndex = i;
                                 break;
                             }
                         }
@@ -1405,7 +1402,7 @@ namespace CharacterController
 
         #region 行動判断メソッド
 
-        [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
+
         private bool JudgeActCondition(int targetIndex, in ActJudgeData condition, int myIndex, bool isSelfJudge)
         {
             // 自分自身を対象にする場合、targetIndexをmyIndexに置き換える

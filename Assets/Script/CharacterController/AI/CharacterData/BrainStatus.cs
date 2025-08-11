@@ -1,3 +1,4 @@
+using MoreMountains.CorgiEngine;
 using Sirenix.OdinInspector;
 using System;
 using System.Collections.Generic;
@@ -659,13 +660,14 @@ namespace CharacterController.StatusData
 
         /// <summary>
         /// StateImfo region - キャラクターの状態情報
-        /// サイズ: 16バイト（1キャッシュラインの25%）
+        /// サイズ: 17バイト（1キャッシュラインの25%）
         /// 用途: AI判断、状態管理
         /// </summary>
         [Serializable]
         [StructLayout(LayoutKind.Sequential)]
         public struct CharacterStateInfo
         {
+
             /// <summary>
             /// 現在のキャラクターの所属
             /// </summary>
@@ -695,6 +697,11 @@ namespace CharacterController.StatusData
             public BrainEventFlagType brainEvent;
 
             /// <summary>
+            /// キャラの現在の状態を示すフラグ。
+            /// </summary>
+            public CharacterStates.CharacterConditions conditionState;
+
+            /// <summary>
             /// 自分を狙ってる敵の数。
             /// ボスか指揮官は無視でよさそう
             /// 今攻撃してるやつも攻撃を終えたら別のターゲットを狙う。
@@ -722,6 +729,7 @@ namespace CharacterController.StatusData
                 this.actState = baseData.initialMove;
                 this.nowEffect = SpecialEffect.なし;
                 this.brainEvent = BrainEventFlagType.None;
+                conditionState = CharacterStates.CharacterConditions.Normal;
                 this.targetingCount = 0;
             }
         }
@@ -1645,7 +1653,7 @@ namespace CharacterController.StatusData
             /// 複数指定あり
             /// intEnum
             /// </summary>
-            [Header("対象の状態")]
+            [Header("対象の行動状態")]
             [SerializeField]
             private ActState _targetState;
 
@@ -1672,6 +1680,14 @@ namespace CharacterController.StatusData
             [Header("対象の使用属性")]
             [SerializeField]
             private Element _targetUseElement;
+
+            /// <summary>
+            /// 対象の状態でフィルタリング
+            /// 単体指定のみ
+            /// </summary>
+            [Header("対象の状態")]
+            [SerializeField]
+            private CharacterStates.CharacterConditions _targetCondition;
 
             /// <summary>
             /// 対象の距離でフィルタリング
@@ -1726,14 +1742,14 @@ namespace CharacterController.StatusData
                     (uint)this._targetState,
                     (uint)this._targetWeakPoint,
                     (uint)this._targetUseElement,
-                    0u
+                    (uint)this._targetCondition
                 );
 
                 uint4 values2 = new(
                     (uint)stateInfo.actState,
                     (uint)solidData.weakPoint,
                     (uint)solidData.attackElement,
-                    0u
+                    (uint)stateInfo.conditionState
                 );
 
                 // FilterBitFlagからAND/OR判定タイプを取得
@@ -1748,7 +1764,7 @@ namespace CharacterController.StatusData
                     (this._filterFlags & FilterBitFlag.行動状態フィルター_And判断) != 0,
                     (this._filterFlags & FilterBitFlag.弱点属性フィルター_And判断) != 0,
                     (this._filterFlags & FilterBitFlag.使用属性フィルター_And判断) != 0,
-                    false
+                    false // targetConditionは常にOR判定
                 );
 
                 // SIMD演算

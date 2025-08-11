@@ -1,4 +1,5 @@
 using CharacterController.StatusData;
+using MoreMountains.CorgiEngine;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -10,6 +11,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using static CharacterController.BaseController;
 using static CharacterController.StatusData.BrainStatus;
+using static MoreMountains.CorgiEngine.MyCharacter;
 
 namespace CharacterController.Collections
 {
@@ -30,9 +32,10 @@ namespace CharacterController.Collections
         typeof(MoveStatus),
         typeof(CharacterColdLog),
         typeof(RecognitionData),
+        typeof(MovementInfo)
         },
         classType: new[] {
-        typeof(BaseController)
+        typeof(MyCharacter)
         }
     )]
     public unsafe partial class SoACharaDataDic
@@ -51,7 +54,7 @@ namespace CharacterController.Collections
         /// ゲームオブジェクトと全キャラクターデータを追加または更新
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public int Add(BrainStatus status, BaseController controller, int hashCode)
+        public int Add(BrainStatus status, MyCharacter controller, int hashCode)
         {
             GameObject obj = controller.gameObject;
 
@@ -70,31 +73,32 @@ namespace CharacterController.Collections
             RecognitionData recognitionData = new RecognitionData();
 
             return this.AddByHash(hashCode, baseInfo, solidData, atkStatus, defStatus,
-                           stateInfo, moveStatus, coldLog, recognitionData, controller);
+                           stateInfo, moveStatus, coldLog, recognitionData, new MovementInfo(), controller);
         }
 
         /// <summary>
-        /// デコンストラクタによりすべてのstruct型データリストをタプルとして返す
+        /// すべてのstruct型データリストをタプルとして返す
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Deconstruct(
-            out UnsafeList<CharacterBaseInfo> characterBaseInfo,
-            out UnsafeList<SolidData> solidData,
-            out UnsafeList<CharacterAtkStatus> characterAtkStatus,
-            out UnsafeList<CharacterDefStatus> characterDefStatus,
-            out UnsafeList<CharacterStateInfo> characterStateInfo,
-            out UnsafeList<MoveStatus> moveStatus,
-            out UnsafeList<CharacterColdLog> characterColdLog,
-            out UnsafeList<RecognitionData> recognitionData)
+        public (UnsafeList<CharacterBaseInfo> characterBaseInfo,
+                UnsafeList<CharacterAtkStatus> characterAtkStatus,
+                UnsafeList<CharacterDefStatus> characterDefStatus,
+                UnsafeList<SolidData> solidData,
+                UnsafeList<CharacterStateInfo> characterStateInfo,
+                UnsafeList<MoveStatus> moveStatus,
+                UnsafeList<CharacterColdLog> coldLog,
+                UnsafeList<RecognitionData> recognizeData,
+                UnsafeList<MovementInfo> judgeResult) GetAllData()
         {
-            characterBaseInfo = this._characterBaseInfo;
-            solidData = this._solidData;
-            characterAtkStatus = this._characterAtkStatus;
-            characterDefStatus = this._characterDefStatus;
-            characterStateInfo = this._characterStateInfo;
-            moveStatus = this._moveStatus;
-            characterColdLog = this._characterColdLog;
-            recognitionData = this._recognitionData;
+            return (_characterBaseInfo,
+                    _characterAtkStatus,
+                    _characterDefStatus,
+                    _solidData,
+                    _characterStateInfo,
+                    _moveStatus,
+                    _characterColdLog,
+                    _recognitionData,
+                    _movementInfo);
         }
 
         #endregion
@@ -106,6 +110,7 @@ namespace CharacterController.Collections
         /// </summary>
         /// <param name="obj"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public CharacterBelong GetBelong(GameObject obj)
         {
             return TryGetIndexByHash(obj.GetHashCode(), out int index)
@@ -118,11 +123,97 @@ namespace CharacterController.Collections
         /// </summary>
         /// <param name="obj"></param>
         /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public float2 GetPosition(GameObject obj)
         {
             return TryGetIndexByHash(obj.GetHashCode(), out int index)
                 ? _characterBaseInfo[index].nowPosition
                 : float2.zero;
+        }
+
+        /// <summary>
+        /// キャラの位置を取得するメソッド
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public float2 GetPosition(int hash)
+        {
+            return TryGetIndexByHash(hash, out int index)
+                ? _characterBaseInfo[index].nowPosition
+                : float2.zero;
+        }
+
+        /// <summary>
+        /// あるキャラのターゲットのハッシュを返すメソッド
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int GetTargetHash(GameObject obj)
+        {
+            return TryGetIndexByHash(obj.GetHashCode(), out int index)
+                ? _movementInfo[index].targetHash
+                : -1;
+        }
+
+        /// <summary>
+        /// あるキャラのターゲットのハッシュを返すメソッド
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public int GetTargetHash(int hash)
+        {
+            return TryGetIndexByHash(hash, out int index)
+                ? _movementInfo[index].targetHash
+                : -1;
+        }
+
+        /// <summary>
+        /// 現在の状態をハッシュ値で取得するメソッド
+        /// </summary>
+        /// <param name="hash"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public CharacterStates.CharacterConditions GetCharacterState(int hash)
+        {
+            return TryGetIndexByHash(hash, out int index)
+                ? _characterStateInfo[index].conditionState
+                : CharacterStates.CharacterConditions.Normal;
+        }
+
+        /// <summary>
+        /// 現在の状態をハッシュ値でセットするためのメソッド
+        /// </summary>
+        /// <param name="hash"></param>
+        /// <param name="value"></param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SetCharacterState(int hash, CharacterStates.CharacterConditions value)
+        {
+            TryGetIndexByHash(hash, out int index);
+            if ( index < 0 )
+            {
+                return; // 存在しない場合は何もしない
+            }
+
+            // 見つかった場合は状態を更新
+            this._characterStateInfo.ElementAt(index).conditionState = value;
+        }
+
+        /// <summary>
+        /// オブジェクトのハッシュからキャラクターを取得するメソッド
+        /// </summary>
+        /// <param name="hash"></param>
+        /// <returns></returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public MyCharacter GetCharacterByHash(int hash)
+        {
+            if ( TryGetIndexByHash(hash, out int index) )
+            {
+                return _myCharacters[index];
+            }
+            return null; // 存在しない場合はnullを返す
         }
 
         #endregion

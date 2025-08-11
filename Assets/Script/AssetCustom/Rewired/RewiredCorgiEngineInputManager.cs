@@ -197,8 +197,6 @@
         /// </summary>
         protected override void InitializeAxis()
         {
-
-
             _axisHorizontal = "MoveHorizontal";
             _axisVertical = "MoveVertical";
             SiteVertical = "SiteVertical";

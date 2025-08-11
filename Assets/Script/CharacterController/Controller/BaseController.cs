@@ -12,123 +12,112 @@ namespace CharacterController
     /// AIのJobが出力した状況判断結果データを受け取って、その通りに動く。<br/>
     /// それらのデータはScriptableObjectから取得するため、実質的にはこのクラス自体が持つデータは判断結果だけ。<br/>
     /// 判断の過程は隠蔽し、切り離した上で行動に必要なデータだけを持つ。
+    /// 
+    /// 2025/8/11 MyChaaracterに統合したため不要
     /// </summary>
     public class BaseController : MonoBehaviour
     {
-        #region 定義
+        //#region 定義
 
-        #region enum定義
+        //#region enum定義
 
-        /// <summary>
-        /// 判断結果をまとめて格納するビット演算用
-        /// </summary>
-        [Flags]
-        public enum JudgeResult : byte
-        {
-            何もなし = 0,
-            モード変更した = 1 << 1,// この時は移動方向も変える
-            ターゲット変更した = 1 << 2,
-            行動を変更した = 1 << 3,
-            方向を変更した = 1 << 4,
-        }
+        ///// <summary>
+        ///// 判断結果をまとめて格納するビット演算用
+        ///// </summary>
+        //[Flags]
+        //public enum JudgeResult : byte
+        //{
+        //    何もなし = 0,
+        //    モード変更した = 1 << 1,// この時は移動方向も変える
+        //    ターゲット変更した = 1 << 2,
+        //    行動を変更した = 1 << 3,
+        //    方向を変更した = 1 << 4,
+        //}
 
-        /// <summary>
-        /// キャラの特殊行動を記録するためのフラグ列挙型。
-        /// いらなそう。対応する行動をしたやつのチームヘイトを上げたりすればいいだけ。
-        /// </summary>
-        public enum CharacterActionLog
-        {
-            回復した,
-            回復された,
-            大ダメージを受けた,
-            魔物に大ダメージを与えた,
+        //#endregion enum定義
 
-        }
+        //#region 構造体定義
 
-        #endregion enum定義
+        ///// <summary>
+        ///// 行動に使用するデータの構造体。
+        ///// 現在の行動状態、移動方向、判断基準、など必要なものは全て収める。
+        ///// これに従って動くというデータ。
+        ///// 28Byte
+        ///// </summary>
+        //[Serializable]
+        //[StructLayout(LayoutKind.Sequential)]
+        //public struct MovementInfo
+        //{
 
-        #region 構造体定義
+        //    // これキャラがどう動くか、みたいなデータまで入れてる
+        //    // 新規判断後はターゲット入れ替えとか、判断時間入れ替えとかちょっとキャラデータをいじる。
 
-        /// <summary>
-        /// 行動に使用するデータの構造体。
-        /// 現在の行動状態、移動方向、判断基準、など必要なものは全て収める。
-        /// これに従って動くというデータ。
-        /// 28Byte
-        /// </summary>
-        [Serializable]
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MovementInfo
-        {
+        //    /// <summary>
+        //    /// ターゲットのハッシュコード
+        //    /// これで相手を取得する。
+        //    /// 味方への支援ムーブのターゲットもありうることは頭に入れる。
+        //    /// </summary>
+        //    public int targetHash;
 
-            // これキャラがどう動くか、みたいなデータまで入れてる
-            // 新規判断後はターゲット入れ替えとか、判断時間入れ替えとかちょっとキャラデータをいじる。
+        //    /// <summary>
+        //    /// 現在のターゲットとの距離。マイナスもあるので方向でもある。
+        //    /// </summary>
+        //    public float targetDistance;
 
-            /// <summary>
-            /// ターゲットのハッシュコード
-            /// これで相手を取得する。
-            /// 味方への支援ムーブのターゲットもありうることは頭に入れる。
-            /// </summary>
-            public int targetHash;
+        //    /// <summary>
+        //    /// 番号で行動を指定する。
+        //    /// 攻撃に限らず逃走とかも全部。移動方向から使用モーション、行動の種別まで（魔法とか移動とか）
+        //    /// こっちの構造データはステータスに持たせとこ。行動状態ごとに番号で指定された行動をする。
+        //    /// 状態変更の場合、これで変更先の状態を指定する。
+        //    /// </summary>
+        //    public byte actNum;
 
-            /// <summary>
-            /// 現在のターゲットとの距離。マイナスもあるので方向でもある。
-            /// </summary>
-            public float targetDistance;
+        //    /// <summary>
+        //    /// 変更先のモード。
+        //    /// </summary>
+        //    public byte changeMode;
 
-            /// <summary>
-            /// 番号で行動を指定する。
-            /// 攻撃に限らず逃走とかも全部。移動方向から使用モーション、行動の種別まで（魔法とか移動とか）
-            /// こっちの構造データはステータスに持たせとこ。行動状態ごとに番号で指定された行動をする。
-            /// 状態変更の場合、これで変更先の状態を指定する。
-            /// </summary>
-            public byte actNum;
+        //    /// <summary>
+        //    /// 判断結果についての情報を格納するビット
+        //    /// </summary>
+        //    public JudgeResult result;
 
-            /// <summary>
-            /// 変更先のモード。
-            /// </summary>
-            public byte changeMode;
+        //    /// <summary>
+        //    /// デバッグ用。
+        //    /// 選択した行動条件を設定する。
+        //    /// </summary>
+        //    public byte selectActCondition;
 
-            /// <summary>
-            /// 判断結果についての情報を格納するビット
-            /// </summary>
-            public JudgeResult result;
+        //    /// <summary>
+        //    /// デバッグ用。
+        //    /// 選択したターゲット選択条件を設定する。
+        //    /// </summary>
+        //    public byte selectTargetCondition;
 
-            /// <summary>
-            /// デバッグ用。
-            /// 選択した行動条件を設定する。
-            /// </summary>
-            public byte selectActCondition;
+        //    /// <summary>
+        //    /// 新規判断時の処理
+        //    /// 行動終了後？
+        //    /// </summary>
+        //    public void JudgeUpdate(int hashCode)
+        //    {
+        //        // 判断情報をキャラデータに反映する。
+        //        // 時間に関してはゲームマネージャー実装後にマネージャーからとるように変更するよ。
+        //        AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, actNum, result, 0);
+        //    }
 
-            /// <summary>
-            /// デバッグ用。
-            /// 選択したターゲット選択条件を設定する。
-            /// </summary>
-            public byte selectTargetCondition;
+        //    /// <summary>
+        //    /// 
+        //    /// </summary>
+        //    public string GetDebugData()
+        //    {
+        //        return $"{this.selectActCondition}番目の条件、{(TargetSelectCondition)this.selectTargetCondition}({this.selectTargetCondition})で判断";
+        //    }
 
-            /// <summary>
-            /// 新規判断時の処理
-            /// 行動終了後？
-            /// </summary>
-            public void JudgeUpdate(int hashCode)
-            {
-                // 判断情報をキャラデータに反映する。
-                // 時間に関してはゲームマネージャー実装後にマネージャーからとるように変更するよ。
-                AIManager.instance.characterDataDictionary.UpdateDataAfterJudge(hashCode, actNum, result, 0);
-            }
+        //}
 
-            /// <summary>
-            /// 
-            /// </summary>
-            public string GetDebugData()
-            {
-                return $"{this.selectActCondition}番目の条件、{(TargetSelectCondition)this.selectTargetCondition}({this.selectTargetCondition})で判断";
-            }
+        //#endregion
 
-        }
-
-        #endregion
-
-        #endregion
+        //#endregion
 
         /// テストで使用するステータス。<br></br>
         /// 判断間隔のデータが入っている。<br></br>
@@ -165,7 +154,7 @@ namespace CharacterController
             // いや、やっぱり材料送って向こうで作ってもらおう。
             // NativeContainer含む構造体をコピーするのなんかこわい。
             // ただもしコピーしても、こっちで作った分はローカル変数でしかないからDispose()周りの問題はないはず。
-            AIManager.instance.CharacterAdd(this.status, this);
+            // AIManager.instance.CharacterAdd(this.status, this);
         }
 
         /// <summary>

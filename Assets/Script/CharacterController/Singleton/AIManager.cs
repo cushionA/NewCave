@@ -1,5 +1,6 @@
 using CharacterController.Collections;
 using CharacterController.StatusData;
+using MoreMountains.CorgiEngine;
 using Rewired;
 using System;
 using System.Collections.Generic;
@@ -12,6 +13,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using static CharacterController.BaseController;
 using static CharacterController.StatusData.BrainStatus;
+using static MoreMountains.CorgiEngine.MyCharacter;
 using static SensorSystem;
 
 namespace CharacterController
@@ -265,14 +267,6 @@ namespace CharacterController
         [HideInInspector]
         public UnsafeList<BrainEventContainer> eventContainer;
 
-        /// <summary>
-        /// 行動決定データ。
-        /// Jobの書き込み先で、ターゲット変更の反映とかも全部はいってる。<br/>
-        /// これを受け取ってキャラクターが行動する。
-        /// </summary>
-        [HideInInspector]
-        public UnsafeList<MovementInfo> judgeResult;
-
         #endregion フィールド
 
         #region 初期化
@@ -301,9 +295,6 @@ namespace CharacterController
             // AIのイベントコンテナを初期化
             this.eventContainer = new UnsafeList<BrainEventContainer>(7, Allocator.Persistent);
 
-            // ジャッジ結果の初期化
-            this.judgeResult = new UnsafeList<MovementInfo>(130, Allocator.Persistent);
-
             // キャラステータスリストの初期化
             this.brainStatusList = Resources.Load<CharacterStatusList>("CharacterStatusList");
 
@@ -328,7 +319,7 @@ namespace CharacterController
         /// <param name="data"></param>
         /// <param name="hashCode"></param>
         /// <param name="team"></param>
-        public void CharacterAdd(BrainStatus status, BaseController addCharacter)
+        public void CharacterAdd(BrainStatus status, MyCharacter addCharacter)
         {
             // 初期所属を追加
             int teamNum = (int)status.baseData.initialBelong;
@@ -426,24 +417,16 @@ namespace CharacterController
         private void BrainJobAct()
         {
 
-            (UnsafeList<BrainStatus.CharacterBaseInfo> characterBaseInfo,
-                             UnsafeList<BrainStatus.SolidData> solidData,
-             UnsafeList<BrainStatus.CharacterAtkStatus> characterAtkStatus,
-             UnsafeList<BrainStatus.CharacterDefStatus> characterDefStatus,
-             UnsafeList<BrainStatus.CharacterStateInfo> characterStateInfo,
-             UnsafeList<BrainStatus.MoveStatus> moveStatus,
-             UnsafeList<BrainStatus.CharacterColdLog> coldLog, UnsafeList<RecognitionData> recognitions) = this.characterDataDictionary;
-
-            JobAI brainJob = new((
-                characterBaseInfo, characterAtkStatus, characterDefStatus, solidData, characterStateInfo, moveStatus, coldLog, recognitions),
-                this.judgeResult,
+            JobAI brainJob = new(
+                this.characterDataDictionary.GetAllData(),
                 this.relationMap,
                 this.brainStatusList.brainArray,
                 0 // いずれゲームマネージャーの変数と置き換える
             );
 
             // ジョブ実行。
-            JobHandle handle = brainJob.Schedule(this.characterDataDictionary.Count, 1);
+            JobHandle handle = brainJob.Schedule(this.
+                characterDataDictionary.Count, 1);
 
             // ジョブの完了を待機
             handle.Complete();

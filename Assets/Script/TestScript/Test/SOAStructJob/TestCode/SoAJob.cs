@@ -5,6 +5,7 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
+using static MoreMountains.CorgiEngine.MyCharacter;
 using static TestScript.SOATest.SOAStatus;
 using ReadOnlyAttribute = Unity.Collections.ReadOnlyAttribute;
 
@@ -90,7 +91,7 @@ namespace TestScript
         /// ターゲット変更の反映とかも全部こっちでやる。
         /// </summary>
         [WriteOnly]
-        public UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult;
+        public UnsafeList<MovementInfo> judgeResult;
 
         /// <summary>
         /// プレイヤー、敵、その他、それぞれが敵対している陣営をビットで表現。
@@ -123,7 +124,7 @@ namespace TestScript
         UnsafeList<CharacterStateInfo> characterStateInfo,
         UnsafeList<MoveStatus> moveStatus,
         UnsafeList<CharaColdLog> coldLog
-        ) dataLists, NativeHashMap<int2, int> pHate, NativeHashMap<int2, int> teamHate, UnsafeList<CharacterController.BaseController.MovementInfo> judgeResult,
+        ) dataLists, NativeHashMap<int2, int> pHate, NativeHashMap<int2, int> teamHate, UnsafeList<MovementInfo> judgeResult,
             NativeArray<int> relationMap, NativeArray<BrainDataForJob> brainArray, float nowTime)
         {
             // タプルから各データリストを展開してフィールドに代入
